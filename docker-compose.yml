@@ -9,7 +9,7 @@ services:
       - DB_FILE=/data/rakit_db.sqlite
       - APP_PIN=123456
       - NODE_ENV=production
-      - IP_DASH_SECRET=3PTgOxyapeXXFRq0/cLZ4eK7agyn+tP+cNGap8RLI/A=
+      - IP_DASH_SECRET=YOUR_SECRET_HERE
     volumes:
       - ./data:/data
 #    ports:
