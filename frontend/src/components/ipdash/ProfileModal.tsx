@@ -45,6 +45,16 @@ export function IpDashProfileModal() {
   const qc = useQueryClient();
   const profilesQuery = useQuery({ queryKey: ['ipdash-profiles'], queryFn: Api.ipdash.profiles.list, enabled: open });
   const profiles = (profilesQuery.data?.profiles ?? []) as Profile[];
+  const encryptionKeyMismatch = Boolean(profilesQuery.data?.encryptionKeyMismatch);
+  const encryptionMessage =
+    (profilesQuery.data?.encryptionMessage as string) || 'Encryption key changed. Reset encrypted profiles to continue.';
+  const appEncKeyConfigured = profilesQuery.data?.appEncKeyConfigured ?? true;
+  const formLockedMessage = encryptionKeyMismatch
+    ? encryptionMessage
+    : !appEncKeyConfigured
+    ? 'Set APP_ENC_KEY in docker-compose.yml before adding IP Dash profiles.'
+    : '';
+  const formLocked = Boolean(formLockedMessage);
   const [form, setForm] = useState<ProfileForm>(emptyForm);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [status, setStatus] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
@@ -96,6 +106,9 @@ export function IpDashProfileModal() {
 
   const createOrUpdate = useMutation({
     mutationFn: async () => {
+      if (formLocked) {
+        throw new Error(formLockedMessage);
+      }
       const payload: Record<string, any> = {
         name: form.name.trim(),
         location: form.location.trim(),
@@ -141,7 +154,12 @@ export function IpDashProfileModal() {
   });
 
   const removeProfile = useMutation({
-    mutationFn: (id: number) => Api.ipdash.profiles.remove(id),
+    mutationFn: (id: number) => {
+      if (formLocked) {
+        return Promise.reject(new Error(formLockedMessage));
+      }
+      return Api.ipdash.profiles.remove(id);
+    },
     onSuccess: (_data, removedId) => {
       qc.invalidateQueries({ queryKey: ['ipdash-profiles'] });
       setConfirmRemoveId(null);
@@ -154,6 +172,9 @@ export function IpDashProfileModal() {
 
   const testProfile = useMutation({
     mutationFn: () => {
+      if (formLocked) {
+        throw new Error(formLockedMessage);
+      }
       if (!form.host.trim() || !form.apiKey.trim()) {
         throw new Error('Host and API key required for testing.');
       }
@@ -165,6 +186,9 @@ export function IpDashProfileModal() {
 
   const loadSites = useMutation({
     mutationFn: async () => {
+      if (formLocked) {
+        throw new Error(formLockedMessage);
+      }
       if (isLocalOffline) {
         throw new Error('Local Offline profiles do not use controller sites.');
       }
@@ -227,6 +251,7 @@ export function IpDashProfileModal() {
       size="lg"
     >
       <div className="stack gap-4">
+        {formLocked && <div className="alert alert-error">{formLockedMessage}</div>}
         <div className="grid gap-3 md:grid-cols-2">
           <label className="stack-sm">
             <div ref={modeHelpRef} className="label relative inline-flex items-center gap-2">
@@ -327,7 +352,7 @@ export function IpDashProfileModal() {
                 <SoftButton
                   variant="ghost"
                   onClick={() => loadSites.mutate()}
-                  disabled={loadSites.isPending || !form.host.trim() || !form.apiKey.trim()}
+                  disabled={formLocked || loadSites.isPending || !form.host.trim() || !form.apiKey.trim()}
                 >
                   {loadSites.isPending ? 'Loading…' : 'Load sites'}
                 </SoftButton>
@@ -370,11 +395,11 @@ export function IpDashProfileModal() {
           <SoftButton
             variant="ghost"
             onClick={() => !isLocalOffline && testProfile.mutate()}
-            disabled={testProfile.isPending || isLocalOffline}
+            disabled={testProfile.isPending || isLocalOffline || formLocked}
           >
             {isLocalOffline ? 'Unavailable in Local Offline' : testProfile.isPending ? 'Testing…' : 'Test connection'}
           </SoftButton>
-          <SoftButton onClick={() => createOrUpdate.mutate()} disabled={createOrUpdate.isPending}>
+          <SoftButton onClick={() => createOrUpdate.mutate()} disabled={createOrUpdate.isPending || formLocked}>
             {createOrUpdate.isPending ? 'Saving…' : editingProfile ? 'Save changes' : 'Add profile'}
           </SoftButton>
         </div>
@@ -416,6 +441,7 @@ export function IpDashProfileModal() {
                           ? cancelEditing()
                           : startEdit(profile)
                       }
+                      disabled={formLocked}
                     >
                       {editingProfile?.id === profile.id ? 'Cancel edit' : 'Edit'}
                     </SoftButton>
@@ -429,6 +455,7 @@ export function IpDashProfileModal() {
                           setConfirmRemoveId(profile.id);
                         }
                       }}
+                      disabled={formLocked || removeProfile.isPending}
                     >
                       {confirmRemoveId === profile.id ? 'Confirm' : 'Remove'}
                     </SoftButton>

@@ -15,6 +15,9 @@ export function IpDashProfileMenu() {
   const setActiveProfileId = useAppStore((s) => s.setIpDashActiveProfileId);
   const profilesQuery = useQuery({ queryKey: ['ipdash-profiles'], queryFn: Api.ipdash.profiles.list });
   const profiles = (profilesQuery.data?.profiles ?? []) as Profile[];
+  const encryptionMismatch = Boolean(profilesQuery.data?.encryptionKeyMismatch);
+  const encryptionMessage =
+    (profilesQuery.data?.encryptionMessage as string) || 'Encryption key changed. Reset encrypted profiles to continue.';
   const activeProfile = profiles.find((profile) => profile.id === activeProfileId) || null;
   const label = activeProfile ? `Profile: ${activeProfile.name}` : 'Profile';
 
@@ -23,6 +26,13 @@ export function IpDashProfileMenu() {
       <DropdownMenu label={label} align="right" variant="ghost" buttonClassName="ipdash-profile-btn">
         {({ close }) => (
           <div className="ipdash-profile-menu">
+            {encryptionMismatch && (
+              <div className="dropdown-note">
+                <strong>Encryption key changed.</strong>
+                <br />
+                {encryptionMessage}
+              </div>
+            )}
             {profilesQuery.isFetching && profiles.length === 0 && (
               <div className="dropdown-note">Loading profiles…</div>
             )}

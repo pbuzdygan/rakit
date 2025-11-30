@@ -34,6 +34,8 @@ export const Api = {
         api(`/api/ipdash/profiles/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
       remove: (id: number) => api(`/api/ipdash/profiles/${id}`, { method: 'DELETE' }),
       test: (payload: any) => api('/api/ipdash/profiles/test', { method: 'POST', body: JSON.stringify(payload) }),
+      resetEncrypted: (payload: any) =>
+        api('/api/ipdash/profiles/reset-encrypted', { method: 'POST', body: JSON.stringify(payload) }),
     },
     sites: {
       preview: (payload: any) => api('/api/ipdash/sites/preview', { method: 'POST', body: JSON.stringify(payload) }),

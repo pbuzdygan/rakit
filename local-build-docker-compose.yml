@@ -1,0 +1,16 @@
+services:
+  app:
+    build: .
+    container_name: rakit_dev
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - PORT=9011
+      - DB_FILE=/data/rakit_db.sqlite
+      - APP_PIN=123456
+      - NODE_ENV=production
+      - APP_ENC_KEY=YOUR_ENC_KEY_HERE
+    volumes:
+      - ./data:/data
+#    ports:
+#      - "8011:8011"

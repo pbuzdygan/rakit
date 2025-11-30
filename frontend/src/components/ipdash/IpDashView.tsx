@@ -172,6 +172,7 @@ export function IpDashView() {
   const [hostRemovalMode, setHostRemovalMode] = useState(false);
   const [selectedHostIds, setSelectedHostIds] = useState<number[]>([]);
   const [removingHosts, setRemovingHosts] = useState(false);
+  const [resetModalOpen, setResetModalOpen] = useState(false);
 
   useEffect(() => {
     if (!actionStatus) return;
@@ -187,9 +188,17 @@ export function IpDashView() {
 
   const profilesQuery = useQuery({ queryKey: ['ipdash-profiles'], queryFn: Api.ipdash.profiles.list });
   const profiles = (profilesQuery.data?.profiles ?? []) as Profile[];
+  const encryptionKeyMismatch = Boolean(profilesQuery.data?.encryptionKeyMismatch);
+  const encryptionMessage =
+    (profilesQuery.data?.encryptionMessage as string) || 'Encryption key changed. Reset encrypted profiles to continue.';
+  const requiresPinForReset = Boolean(profilesQuery.data?.requiresPinForReset);
+  const appEncKeyConfigured = profilesQuery.data?.appEncKeyConfigured ?? true;
 
   useEffect(() => {
-    if (!profiles.length) return;
+    if (!profiles.length) {
+      if (activeProfileId !== null) setActiveProfileId(null);
+      return;
+    }
     if (!activeProfileId || !profiles.some((profile) => profile.id === activeProfileId)) {
       setActiveProfileId(profiles[0].id);
     }
@@ -199,10 +208,17 @@ export function IpDashView() {
   const dataQuery = useQuery({
     queryKey: ['ipdash-data', activeProfileId ?? 'none', refreshToken],
     queryFn: () => Api.ipdash.data(activeProfileId ?? undefined),
-    enabled: Boolean(activeProfileId),
+    enabled: Boolean(activeProfileId && profilesQuery.data && !encryptionKeyMismatch && appEncKeyConfigured),
     refetchOnWindowFocus: false,
   });
   const offlineDataKey = ['ipdash-data', activeProfileId ?? 'none', refreshToken];
+  const handleResetSuccess = async () => {
+    setResetModalOpen(false);
+    setActiveProfileId(null);
+    await queryClient.invalidateQueries({ queryKey: ['ipdash-profiles'] });
+    queryClient.removeQueries({ queryKey: ['ipdash-data'], exact: false });
+    triggerIpDashRefresh();
+  };
 
   const patchOfflineSnapshot = (updater: (snapshot: DashboardResponse) => DashboardResponse) => {
     queryClient.setQueryData(offlineDataKey, (prev: DashboardResponse | undefined) => {
@@ -235,6 +251,20 @@ export function IpDashView() {
   const controllerHost = dashboard?.profile?.host ?? null;
 
   useEffect(() => {
+    if (encryptionKeyMismatch) {
+      setConnectionStatus({
+        text: encryptionMessage,
+        status: 'inactive',
+      });
+      return;
+    }
+    if (!appEncKeyConfigured) {
+      setConnectionStatus({
+        text: 'Set APP_ENC_KEY in your compose file to encrypt IP Dash profiles.',
+        status: 'inactive',
+      });
+      return;
+    }
     const profile = profiles.find((p) => p.id === activeProfileId) || null;
     if (!profile) {
       setConnectionStatus({
@@ -261,7 +291,16 @@ export function IpDashView() {
       text: `Connected: ${profile.name}${locationText}${message}`,
       status,
     });
-  }, [profiles, activeProfileId, dashboard, dataQuery.isFetching, setConnectionStatus]);
+  }, [
+    profiles,
+    activeProfileId,
+    dashboard,
+    dataQuery.isFetching,
+    setConnectionStatus,
+    encryptionKeyMismatch,
+    encryptionMessage,
+    appEncKeyConfigured,
+  ]);
 
   useEffect(() => {
     if (!groupMenuOpen) return;
@@ -471,6 +510,53 @@ export function IpDashView() {
 
   const statusMessage =
     dashboard?.status === 'inactive' && dashboard?.error ? dashboard.error : dataQuery.isError ? String(dataQuery.error) : '';
+
+  if (encryptionKeyMismatch) {
+    return (
+      <>
+        <Surface className="stack gap-3">
+          <h3 className="type-title-lg">Encryption key changed</h3>
+          <p className="type-body-sm text-textSec">{encryptionMessage}</p>
+          <div className="stack gap-2 text-textSec">
+            <p>
+              <strong>Option 1:</strong> Restore the previous <code>APP_ENC_KEY</code> value in your docker compose file and
+              restart the stack to keep all encrypted controller profiles.
+            </p>
+            <p>
+              <strong>Option 2:</strong> Reset encrypted IP Dash profiles and recreate them with the new key. This removes all
+              controller profiles and Local Offline scopes/hosts.
+            </p>
+          </div>
+          <div className="flex gap-3 flex-wrap">
+            <SoftButton variant="danger" onClick={() => setResetModalOpen(true)}>
+              Reset encrypted profiles
+            </SoftButton>
+            <SoftButton variant="ghost" onClick={() => profilesQuery.refetch()}>
+              Check again
+            </SoftButton>
+          </div>
+        </Surface>
+        <ResetEncryptedProfilesModal
+          open={resetModalOpen}
+          onClose={() => setResetModalOpen(false)}
+          onSuccess={handleResetSuccess}
+          requiresPin={requiresPinForReset}
+        />
+      </>
+    );
+  }
+
+  if (!appEncKeyConfigured) {
+    return (
+      <Surface className="stack gap-3">
+        <h3 className="type-title-lg">Encryption key required</h3>
+        <p className="type-body-sm text-textSec">
+          Set the <code>APP_ENC_KEY</code> environment variable in <code>docker-compose.yml</code> before storing any controller
+          API keys. Use a random 32+ character string, restart Rakit, then reload this view.
+        </p>
+      </Surface>
+    );
+  }
 
   if (!profiles.length) {
     return (
@@ -964,6 +1050,103 @@ function SimpleGrid({
         );
       })}
     </div>
+  );
+}
+
+type ResetModalProps = {
+  open: boolean;
+  requiresPin: boolean;
+  onClose: () => void;
+  onSuccess: () => Promise<void> | void;
+};
+
+function ResetEncryptedProfilesModal({ open, requiresPin, onClose, onSuccess }: ResetModalProps) {
+  const [confirmValue, setConfirmValue] = useState('');
+  const [pinValue, setPinValue] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [working, setWorking] = useState(false);
+
+  useEffect(() => {
+    if (!open) {
+      setConfirmValue('');
+      setPinValue('');
+      setError(null);
+    }
+  }, [open]);
+
+  const handleReset = async () => {
+    if (confirmValue.trim().toUpperCase() !== 'RESET') {
+      setError('Type RESET to confirm.');
+      return;
+    }
+    if (requiresPin && (pinValue.trim().length < 4 || pinValue.trim().length > 8)) {
+      setError('Enter your 4–8 digit PIN to continue.');
+      return;
+    }
+    setWorking(true);
+    setError(null);
+    try {
+      await Api.ipdash.profiles.resetEncrypted({
+        confirm: 'RESET',
+        pin: requiresPin ? pinValue.trim() : undefined,
+      });
+      await onSuccess();
+    } catch (err: any) {
+      setError(err?.message || 'Failed to reset encrypted profiles.');
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const canSubmit = confirmValue.trim().toUpperCase() === 'RESET' && (!requiresPin || pinValue.trim().length >= 4);
+
+  return (
+    <ModalBase open={open} onClose={onClose} title="Reset encrypted profiles" size="sm" disableClose={working}>
+      <div className="stack gap-3">
+        <p className="type-body-sm text-textSec">
+          Resetting removes all controller profiles plus Local Offline scopes and hosts. This cannot be undone.
+        </p>
+        <label className="field-label" htmlFor="reset-confirm">
+          Confirmation
+        </label>
+        <input
+          id="reset-confirm"
+          className="input"
+          type="text"
+          value={confirmValue}
+          onChange={(e) => setConfirmValue(e.target.value)}
+          placeholder="Type RESET"
+          disabled={working}
+        />
+        {requiresPin && (
+          <>
+            <label className="field-label" htmlFor="reset-pin">
+              PIN
+            </label>
+            <input
+              id="reset-pin"
+              className="input"
+              type="password"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              value={pinValue}
+              onChange={(e) => setPinValue(e.target.value.replace(/[^0-9]/g, ''))}
+              placeholder="Enter your 4–8 digit PIN"
+              disabled={working}
+            />
+          </>
+        )}
+        {error && <div className="alert alert-error">{error}</div>}
+        <div className="flex justify-end gap-2">
+          <SoftButton variant="ghost" onClick={onClose} disabled={working}>
+            Cancel
+          </SoftButton>
+          <SoftButton variant="danger" onClick={handleReset} disabled={!canSubmit || working}>
+            {working ? 'Resetting…' : 'Reset profiles'}
+          </SoftButton>
+        </div>
+      </div>
+    </ModalBase>
   );
 }
 

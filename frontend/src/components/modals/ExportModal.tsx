@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { ModalBase } from './ModalBase';
 import { useAppStore } from '../../store';
 import { Api } from '../../api';
@@ -66,8 +67,12 @@ export function ExportModal() {
   const [statusMessage, setStatusMessage] = useState('');
   const [selectedModules, setSelectedModules] = useState<ModuleId[]>(['cabinet']);
   const [ipDashPrefs, setIpDashPrefs] = useState<IpDashPrefs>(() => loadIpDashPrefs());
+  const profilesQuery = useQuery({ queryKey: ['ipdash-profiles'], queryFn: Api.ipdash.profiles.list });
+  const encryptionBlocked = Boolean(profilesQuery.data?.encryptionKeyMismatch);
+  const encryptionMessage =
+    (profilesQuery.data?.encryptionMessage as string) || 'Encryption key changed. Reset encrypted profiles to export IP Dash.';
 
-  const canExportIpDash = Boolean(ipDashActiveProfileId);
+  const canExportIpDash = Boolean(ipDashActiveProfileId) && !encryptionBlocked;
 
   useEffect(() => {
     if (!open) return;
@@ -94,6 +99,11 @@ export function ExportModal() {
 
   const runExport = async () => {
     if (!selectedModules.length) return;
+    if (selectedModules.includes('ipdash') && encryptionBlocked) {
+      setStatus('error');
+      setStatusMessage(encryptionMessage);
+      return;
+    }
     setWorking(true);
     setStatus('preparing');
     setStatusMessage('Preparing workbook…');
@@ -156,13 +166,21 @@ export function ExportModal() {
                   <span className="export-module-title">{option.label}</span>
                   <span className="export-module-desc">{option.description}</span>
                   {option.id === 'ipdash' && !canExportIpDash && (
-                    <span className="export-module-note">Add an IP Dash profile to enable this module.</span>
+                    <span className="export-module-note">
+                      {encryptionBlocked
+                        ? encryptionMessage
+                        : 'Add an IP Dash profile to enable this module.'}
+                    </span>
                   )}
                 </div>
               </label>
             );
           })}
         </div>
+
+        {encryptionBlocked && (
+          <div className="alert alert-error">{encryptionMessage}</div>
+        )}
 
         {status !== 'idle' && (
           <div className={`export-status export-status-${status}`}>

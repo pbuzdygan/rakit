@@ -15,9 +15,103 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = Number(process.env.PORT || 8011);
 const APP_PIN = process.env.APP_PIN || '';
-const IP_DASH_SECRET = process.env.IP_DASH_SECRET || '';
+const APP_ENC_KEY = process.env.APP_ENC_KEY || '';
+const APP_ENC_FINGERPRINT = APP_ENC_KEY
+  ? crypto.createHash('sha256').update(APP_ENC_KEY, 'utf8').digest('hex')
+  : '';
 const IP_DASH_TIMEOUT_MS = Number(process.env.IP_DASH_TIMEOUT_MS || 15000);
 const LOCAL_OFFLINE_MODE = 'local-offline';
+const ENC_KEY_META_KEY = 'app_enc_key_fingerprint';
+const ENCRYPTION_RESET_MESSAGE =
+  'APP_ENC_KEY changed. Restore the previous key or reset encrypted profiles to continue.';
+
+const getMetaValueStmt = db.prepare('SELECT value FROM app_meta WHERE key=?');
+const upsertMetaValueStmt = db.prepare(
+  'INSERT INTO app_meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value'
+);
+const deleteMetaValueStmt = db.prepare('DELETE FROM app_meta WHERE key=?');
+const ipdashProfileCountStmt = db.prepare('SELECT COUNT(1) AS c FROM ipdash_profiles');
+
+const getMetaValue = (key) => {
+  const row = getMetaValueStmt.get(key);
+  return row ? row.value : null;
+};
+
+const setMetaValue = (key, value) => {
+  upsertMetaValueStmt.run(key, value);
+};
+
+const deleteMetaValue = (key) => {
+  deleteMetaValueStmt.run(key);
+};
+
+const getEncryptedProfileCount = () => Number(ipdashProfileCountStmt.get()?.c ?? 0);
+
+let encryptionKeyMismatch = false;
+let encryptionState = 'unknown';
+const logEncryptionState = (state, meta = '') => {
+  if (state === encryptionState) return;
+  encryptionState = state;
+  const detail = meta ? ` – ${meta}` : '';
+  const prefix = '[Encryption]';
+  if (state.startsWith('blocked')) {
+    console.warn(`${prefix} ${state}${detail}`);
+  } else {
+    console.log(`${prefix} ${state}${detail}`);
+  }
+};
+
+const refreshEncryptionKeyState = () => {
+  const profileCount = getEncryptedProfileCount();
+  const storedFingerprint = getMetaValue(ENC_KEY_META_KEY);
+  if (!profileCount) {
+    if (storedFingerprint != null) deleteMetaValue(ENC_KEY_META_KEY);
+    encryptionKeyMismatch = false;
+    logEncryptionState('idle', 'No encrypted profiles in database');
+    return;
+  }
+  if (!APP_ENC_KEY) {
+    encryptionKeyMismatch = true;
+    logEncryptionState('blocked-missing-key', 'APP_ENC_KEY is not configured but encrypted profiles exist');
+    return;
+  }
+  if (!storedFingerprint) {
+    if (APP_ENC_FINGERPRINT) setMetaValue(ENC_KEY_META_KEY, APP_ENC_FINGERPRINT);
+    encryptionKeyMismatch = false;
+    logEncryptionState('ready', 'Fingerprint recorded for existing encrypted profiles');
+    return;
+  }
+  encryptionKeyMismatch = storedFingerprint !== APP_ENC_FINGERPRINT;
+  if (encryptionKeyMismatch) {
+    logEncryptionState('blocked-mismatch', 'Stored fingerprint does not match current APP_ENC_KEY');
+  } else {
+    logEncryptionState('ready', 'APP_ENC_KEY fingerprint matches stored value');
+  }
+};
+
+const guardEncryptionReady = (res) => {
+  if (!APP_ENC_KEY) {
+    console.warn('[Encryption] Blocked request – APP_ENC_KEY missing');
+    res.status(500).json({ error: 'APP_ENC_KEY is not configured' });
+    return false;
+  }
+  if (encryptionKeyMismatch) {
+    console.warn('[Encryption] Blocked request – fingerprint mismatch detected');
+    res.status(409).json({ error: ENCRYPTION_RESET_MESSAGE, code: 'ENCRYPTION_KEY_MISMATCH' });
+    return false;
+  }
+  return true;
+};
+
+const markEncryptionKeyInUse = () => {
+  if (!APP_ENC_FINGERPRINT) return;
+  const storedFingerprint = getMetaValue(ENC_KEY_META_KEY);
+  if (!storedFingerprint) {
+    setMetaValue(ENC_KEY_META_KEY, APP_ENC_FINGERPRINT);
+  }
+};
+
+refreshEncryptionKeyState();
 
 const clampText = (value, max = 120) =>
   typeof value === 'string' ? value.trim().slice(0, max) : '';
@@ -88,19 +182,21 @@ const hasRangeConflict = (devices, start, height, ignoreId = null) => {
 const getIpDashKey = (() => {
   let cached = null;
   return () => {
-    if (!IP_DASH_SECRET) throw new Error('IP_DASH_SECRET is not configured');
-    if (!cached) cached = crypto.createHash('sha256').update(IP_DASH_SECRET, 'utf8').digest();
+    if (!APP_ENC_KEY) throw new Error('APP_ENC_KEY is not configured');
+    if (!cached) cached = crypto.createHash('sha256').update(APP_ENC_KEY, 'utf8').digest();
     return cached;
   };
 })();
 
 const encryptSecret = (value) => {
   if (!value) return null;
+  if (encryptionKeyMismatch) throw new Error(ENCRYPTION_RESET_MESSAGE);
   const key = getIpDashKey();
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
   const encrypted = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
   const tag = cipher.getAuthTag();
+  markEncryptionKeyInUse();
   return `${iv.toString('base64')}:${encrypted.toString('base64')}:${tag.toString('base64')}`;
 };
 
@@ -108,6 +204,7 @@ const decryptSecret = (payload) => {
   if (!payload) return '';
   const [ivStr, dataStr, tagStr] = payload.split(':');
   if (!ivStr || !dataStr || !tagStr) return '';
+  if (encryptionKeyMismatch) throw new Error(ENCRYPTION_RESET_MESSAGE);
   const key = getIpDashKey();
   const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(ivStr, 'base64'));
   decipher.setAuthTag(Buffer.from(tagStr, 'base64'));
@@ -510,10 +607,17 @@ app.delete('/api/cabinets/:cabinetId/devices/:deviceId', (req,res)=>{
   res.json({ ok: true });
 });
 app.get('/api/ipdash/profiles', (_req,res)=>{
-  res.json({ profiles: listProfiles() });
+  res.json({
+    profiles: listProfiles(),
+    encryptionKeyMismatch,
+    requiresPinForReset: Boolean(APP_PIN),
+    encryptionMessage: ENCRYPTION_RESET_MESSAGE,
+    appEncKeyConfigured: Boolean(APP_ENC_KEY),
+  });
 });
 
 app.post('/api/ipdash/profiles', (req,res)=>{
+  if (!guardEncryptionReady(res)) return;
   const { name, location, host, mode, apiKey, siteId } = req.body || {};
   const trimmedName = clampText(name, 120);
   if (!trimmedName) return res.status(400).json({ error: 'Profile name required' });
@@ -539,6 +643,7 @@ app.post('/api/ipdash/profiles', (req,res)=>{
       .prepare('INSERT INTO ipdash_profiles(name, location, host, mode, site_id, api_key_encrypted) VALUES (?,?,?,?,?,?)')
       .run(trimmedName, clampText(location, 120) || null, sanitizedHost, normalizedMode, normalizedSiteId, encryptedKey);
     const profile = getProfileById(info.lastInsertRowid);
+    refreshEncryptionKeyState();
     res.json({ ok: true, profile: mapProfileRow(profile) });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Failed to store profile' });
@@ -546,6 +651,7 @@ app.post('/api/ipdash/profiles', (req,res)=>{
 });
 
 app.patch('/api/ipdash/profiles/:profileId', (req,res)=>{
+  if (!guardEncryptionReady(res)) return;
   const { profileId } = req.params;
   const existing = getProfileById(profileId);
   if (!existing) return res.status(404).json({ error: 'Profile not found' });
@@ -601,13 +707,16 @@ app.patch('/api/ipdash/profiles/:profileId', (req,res)=>{
 });
 
 app.delete('/api/ipdash/profiles/:profileId', (req,res)=>{
+  if (!guardEncryptionReady(res)) return;
   const { profileId } = req.params;
   const info = db.prepare('DELETE FROM ipdash_profiles WHERE id=?').run(profileId);
   if (!info.changes) return res.status(404).json({ error: 'Profile not found' });
+  refreshEncryptionKeyState();
   res.json({ ok: true });
 });
 
 app.post('/api/ipdash/profiles/test', async (req,res)=>{
+  if (!guardEncryptionReady(res)) return;
   const { host, apiKey } = req.body || {};
   const sanitizedHost = normalizeHost(host);
   if (!sanitizedHost) return res.status(400).json({ error: 'Valid host required' });
@@ -624,6 +733,7 @@ app.post('/api/ipdash/profiles/test', async (req,res)=>{
 });
 
 app.post('/api/ipdash/sites/preview', async (req,res)=>{
+  if (!guardEncryptionReady(res)) return;
   const { host, apiKey } = req.body || {};
   const sanitizedHost = normalizeHost(host);
   if (!sanitizedHost) return res.status(400).json({ error: 'Valid host required' });
@@ -649,7 +759,32 @@ app.post('/api/ipdash/sites/preview', async (req,res)=>{
   }
 });
 
+app.post('/api/ipdash/profiles/reset-encrypted', (req,res)=>{
+  if (!encryptionKeyMismatch) {
+    return res.status(400).json({ error: 'Encryption key is already in sync' });
+  }
+  const { confirm, pin } = req.body || {};
+  if (confirm !== 'RESET') {
+    return res.status(400).json({ error: "Type RESET to confirm deletion of encrypted profiles." });
+  }
+  if (APP_PIN) {
+    if (typeof pin !== 'string' || pin !== APP_PIN || pin.length < 4 || pin.length > 8) {
+      return res.status(401).json({ error: 'PIN required to reset encrypted profiles.' });
+    }
+  }
+  const deleted = db.prepare('DELETE FROM ipdash_profiles').run();
+  deleteMetaValue(ENC_KEY_META_KEY);
+  refreshEncryptionKeyState();
+  console.warn('[Encryption] Encrypted IP Dash profiles were reset by request');
+  res.json({
+    ok: true,
+    deletedProfiles: deleted?.changes ?? 0,
+    message: 'Encrypted IP Dash profiles have been cleared. Add new profiles to use the current APP_ENC_KEY.',
+  });
+});
+
 app.get('/api/ipdash/data', async (req,res)=>{
+  if (!guardEncryptionReady(res)) return;
   const requestedId = req.query.profileId ? Number(req.query.profileId) : null;
   let profileRow = requestedId ? getProfileById(requestedId) : null;
   if (!profileRow) profileRow = getLatestProfile();
@@ -685,6 +820,7 @@ app.get('/api/ipdash/data', async (req,res)=>{
 });
 
 app.post('/api/ipdash/offline/scopes', (req,res)=>{
+  if (!guardEncryptionReady(res)) return;
   const { profileId, cidr, label } = req.body || {};
   const profileIdNum = Number(profileId);
   if (!profileIdNum) return res.status(400).json({ error: 'Profile required' });
@@ -701,6 +837,7 @@ app.post('/api/ipdash/offline/scopes', (req,res)=>{
 });
 
 app.delete('/api/ipdash/offline/scopes/:scopeId', (req,res)=>{
+  if (!guardEncryptionReady(res)) return;
   const { scopeId } = req.params;
   const scope = getScopeById(scopeId);
   if (!scope) return res.status(404).json({ error: 'Scope not found' });
@@ -713,6 +850,7 @@ app.delete('/api/ipdash/offline/scopes/:scopeId', (req,res)=>{
 });
 
 app.post('/api/ipdash/offline/ips', (req,res)=>{
+  if (!guardEncryptionReady(res)) return;
   const { profileId, scopeId, hostname, mac, ip } = req.body || {};
   const profileIdNum = Number(profileId);
   const scopeIdNum = Number(scopeId);
@@ -750,6 +888,7 @@ app.post('/api/ipdash/offline/ips', (req,res)=>{
 });
 
 app.delete('/api/ipdash/offline/ips/:hostId', (req,res)=>{
+  if (!guardEncryptionReady(res)) return;
   const hostId = Number(req.params.hostId);
   if (!Number.isInteger(hostId) || hostId <= 0) {
     return res.status(400).json({ error: 'Invalid host id' });
@@ -774,6 +913,7 @@ app.post('/api/export', async (req,res)=>{
     const requestedModules = Array.isArray(modules) && modules.length ? modules : ['cabinet'];
     const includeCabinet = requestedModules.includes('cabinet');
     const includeIpDash = requestedModules.includes('ipdash');
+    if (includeIpDash && !guardEncryptionReady(res)) return;
     let ipDashContext = null;
     if (includeIpDash) {
       ipDashContext = await buildIpDashContext(ipdash);
