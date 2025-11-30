@@ -1,4 +1,4 @@
-# Rakit
+# Rakit - EARLY DEVELOPMENT
 
 Rakit dashboard for self-hosted ops. Stack: Express + better-sqlite3 + React (Vite) + Tailwind + Zustand + TanStack Query + Framer Motion.
 
