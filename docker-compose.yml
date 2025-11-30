@@ -1,0 +1,16 @@
+services:
+  app:
+    build: .
+    container_name: RakitStack
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - PORT=8011
+      - DB_FILE=/data/rakit_db.sqlite
+      - APP_PIN=123456
+      - NODE_ENV=production
+      - IP_DASH_SECRET=3PTgOxyapeXXFRq0/cLZ4eK7agyn+tP+cNGap8RLI/A=
+    volumes:
+      - ./data:/data
+#    ports:
+#      - "8011:8011"

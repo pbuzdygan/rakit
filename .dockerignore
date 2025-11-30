@@ -1,0 +1,57 @@
+# Node artifacts
+**/node_modules
+**/dist
+**/build
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Git
+.git
+.gitignore
+
+# Editor / IDE
+.vscode
+.idea
+*.log
+
+# Local runtime
+data
+.env
+
+__pycache__
+*.pyc
+*.pyo
+*.env
+# Dane lokalne (bazy, logi)
+data/*.db
+data/*.sqlite*
+data/*.bak
+data/*.log
+
+# Frontend - build artefakty i zależności
+frontend/node_modules
+frontend/.npm
+frontend/.cache
+frontend/dist
+frontend/.vite
+frontend/.env*
+frontend/coverage
+frontend/test-results
+
+# Backend - cache i środowiska
+backend/__pycache__
+backend/.mypy_cache
+backend/.pytest_cache
+backend/.venv
+backend/.coverage
+venv/
+.env/
+.env.*
+
+# Dokumentacja / pomocnicze
+README_*
+CHANGELOG.md
+*.md
+*.txt

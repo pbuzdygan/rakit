@@ -1,0 +1,22 @@
+{
+  "name": "Rakit Operations Console",
+  "short_name": "Rakit",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#020617",
+  "description": "Konsola operacyjna Rakit dostępna jak natywna aplikacja.",
+  "icons": [
+    {
+      "src": "/android-chrome-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/android-chrome-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
