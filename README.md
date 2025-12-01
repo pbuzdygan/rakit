@@ -1,34 +1,104 @@
-# Rakit
+# RAKIT
 
-Rakit dashboard for self-hosted ops. Stack: Express + better-sqlite3 + React (Vite) + Tailwind + Zustand + TanStack Query + Framer Motion.
+<p align="center">
+  <img src="branding/rakit_banner.png" alt="RAKIT Banner" width="25%">
+</p>
 
-## Run
+
+**RAKIT** is a self-hosted dashboard for IT ops. Manage Your IP reservations offline or read it via Unifi API directly from Your Unifi stack. Visualize, manage and plan Your IT Cabinets. Export data at any time.
+
+- ✅ Modern UI (React + Vite + Tailwind)
+- ✅ Backend API (Node.js)
+- ✅ PWA – works offline and behaves like a native app
+- ✅ Manage multiple IT rack cabinets
+- ✅ Manage IP reservations including entire IP scopes
+- ✅ Designed for self-hosting (Docker, docker-compose, reverse proxy friendly)
+- ✅ Secured with encryption key
+
+---
+## Demo / Screenshots
+
+### Main UI
+<p align="center">
+  <img src="branding/0_dark.png" width="45%" alt="Main UI IT Cabinets Dark">
+  <img src="branding/0_light.png" width="45%" alt="Main UI IT Cabinets Light">
+</p>
+<p align="center">
+  <img src="branding/1_dark.png" width="45%" alt="Main UI IP Dash Dark">
+  <img src="branding/1_light.png" width="45%" alt="Main UI IP Dash Light">
+</p>
+
+### Export data
+<p align="center">
+  <img src="branding/2_dark.png" width="45%" alt="Export Dark">
+  <img src="branding/2_light.png" width="45%" alt="Export Light">
+</p>
+
+### Profiles management
+<p align="center">
+  <img src="branding/3_dark.png" width="45%" alt="Profiles Dark">
+  <img src="branding/3_light.png" width="45%" alt="Profiles Light">
+</p>
+
+
+---
+
+## Features
+
+- Manage **IT Cabinets**
+- Manage **IP Reservations**
+- Read IPs info directly from **Unifi API integration**
+- Add, edit, and delete **API connection profiles**
+- Generate **export data**
+- **PIN guard** built-in (secure access)
+- **Offline** mode (PWA, cache zasobów)
+- **Data encryption** - your API keys are secured with encryption key
+
+---
+
+## Run with Docker (GHCR)
+
+The easiest way to get started is to use compose file:
+
 ```bash
-APP_PIN=123456 docker compose up --build
-```
-Set `APP_PIN` to a 4-8 digit code; the container exits if it is missing or invalid.
-App: `http://<NAS_IP>:8011`  
-Health: `http://<NAS_IP>:8011/health` → `{ "status": "ok" }`
+services:
+  rakit:
+    image: ghcr.io/pbuzdygan/rakit:latest
+    container_name: rakit
+    restart: unless-stopped
 
-## Deployment notes
-- Dockerfile keeps native deps lean and still installs frontend + backend packages separately for cache hits.
-- If the Vite build fails the image still gets a placeholder HTML in `/app/public/index.html`.
-- `DB_FILE` defaults to `/data/rakit_db.sqlite`; mount `./data:/data` for persistence.
-- Set `APP_ENC_KEY` (see `docker-compose.yml`) to a 32+ character string to encrypt stored controller API keys for IP Dash profiles. Generate one with `openssl rand -base64 32` or any other secure secret manager.
-- If `APP_ENC_KEY` ever changes after profiles exist, Rakit blocks IP Dash actions until you either restore the previous key or wipe the encrypted profiles from the UI.
-- Encryption is handled on the backend with AES-256-GCM keyed by `APP_ENC_KEY`. The key’s SHA-256 fingerprint is stored inside the database (`app_meta` table), so changing the key without resetting profiles is detected automatically. The UI surfaces the mismatch and provides a RESET flow (requires typing `RESET` and the optional PIN) that deletes controller profiles before encrypting new data with the fresh key.
+# Network mode for Rakit - recommended for using all Rakit API's integrations
+    network_mode: host
+# Rakit backend/frontend listens on port 8011 inside the container - required only in different than "network_mode host" modes
+#    ports:
+#      - "8011:8011"
 
-## Quick test checklist
-1. `APP_PIN=123456 docker compose up --build`
-2. Browse to `http://<NAS_IP>:8011`.
-3. Enter the PIN (default `123456`) → Rakit console appears.
-4. Main bar → switch between **Overview / IT Cabinet / IP Dash**.
-5. Cabinet view → Add cabinet → select it → Add device; drag devices along rack slots and add comments.
-6. IP Dash view → add a controller profile (host + API key), switch between Table / Grid view, toggle filters and refresh data.
-7. Menu → Export snapshot → download `.xlsx` with the cabinet registry.
-8. Menu → Settings → Toggle theme + Lock application.
+# Persistent data (if backend writes anything to /data)
+    volumes:
+      - ./data:/data
 
-## Expected boot log
+# Environment variables
+    environment:
+      - PORT=8011 #in network_mode host You can set different than default port
+      - DB_FILE=/data/mopay.sqlite
+      - APP_PIN=REPLACE_WITH_YOUR_PIN #PIN 4-8 digits
+      - APP_ENC_KEY=REPLACE_WITH_YOUR_KEY
+      - NODE_ENV=production
+
 ```
-Rakit backend listening on :8011
+### Generate Your APP_ENC_KEY
+
+Result of below command is Your encryption key - stored it securley - without it, Your Rakit will not start and Your API connection profiles will be lost.
+
+```bash
+openssl rand -base64 32
+
 ```
+
+## Buy Me a Coffee
+If You like results of my efforts, feel free to show that by supporting me.
+
+[!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/pbuzdygan)
+<p align="left">
+  <img src="branding/bmc_qr.png" width="25%" alt="BMC QR code">
+</p>
