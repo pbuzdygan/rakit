@@ -14,7 +14,12 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = Number(process.env.PORT || 8011);
-const APP_PIN = process.env.APP_PIN || '';
+const ENV_APP_PIN = typeof process.env.APP_PIN === 'string' ? process.env.APP_PIN.trim() : '';
+if (!/^\d{4,8}$/.test(ENV_APP_PIN)) {
+  console.error('Error: APP_PIN must be provided (4-8 digits)');
+  process.exit(1);
+}
+const APP_PIN = ENV_APP_PIN;
 const APP_ENC_KEY = process.env.APP_ENC_KEY || '';
 const APP_ENC_FINGERPRINT = APP_ENC_KEY
   ? crypto.createHash('sha256').update(APP_ENC_KEY, 'utf8').digest('hex')

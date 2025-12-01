@@ -4,8 +4,9 @@ Rakit dashboard for self-hosted ops. Stack: Express + better-sqlite3 + React (Vi
 
 ## Run
 ```bash
-APP_PIN= docker compose up --build
+APP_PIN=123456 docker compose up --build
 ```
+Set `APP_PIN` to a 4-8 digit code; the container exits if it is missing or invalid.
 App: `http://<NAS_IP>:8011`  
 Health: `http://<NAS_IP>:8011/health` → `{ "status": "ok" }`
 
@@ -18,7 +19,7 @@ Health: `http://<NAS_IP>:8011/health` → `{ "status": "ok" }`
 - Encryption is handled on the backend with AES-256-GCM keyed by `APP_ENC_KEY`. The key’s SHA-256 fingerprint is stored inside the database (`app_meta` table), so changing the key without resetting profiles is detected automatically. The UI surfaces the mismatch and provides a RESET flow (requires typing `RESET` and the optional PIN) that deletes controller profiles before encrypting new data with the fresh key.
 
 ## Quick test checklist
-1. `APP_PIN= docker compose up --build`
+1. `APP_PIN=123456 docker compose up --build`
 2. Browse to `http://<NAS_IP>:8011`.
 3. Enter the PIN (default `123456`) → Rakit console appears.
 4. Main bar → switch between **Overview / IT Cabinet / IP Dash**.
