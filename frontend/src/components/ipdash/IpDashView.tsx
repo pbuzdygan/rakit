@@ -152,6 +152,7 @@ export function IpDashView() {
   const setActiveProfileId = useAppStore((s) => s.setIpDashActiveProfileId);
   const ipDashViewMode = useAppStore((s) => s.ipDashViewMode);
   const setConnectionStatus = useAppStore((s) => s.setIpDashConnectionStatus);
+  const connectionStatus = useAppStore((s) => s.ipDashConnectionStatus);
   const openProfileModal = useAppStore((s) => s.openIpDashProfileModal);
   const triggerIpDashRefresh = useAppStore((s) => s.triggerIpDashRefresh);
 
@@ -187,7 +188,10 @@ export function IpDashView() {
   }, [activeNetworkIndex, hostRemovalMode]);
 
   const profilesQuery = useQuery({ queryKey: ['ipdash-profiles'], queryFn: Api.ipdash.profiles.list });
-  const profiles = (profilesQuery.data?.profiles ?? []) as Profile[];
+  const profiles = useMemo(
+    () => (profilesQuery.data?.profiles ?? []) as Profile[],
+    [profilesQuery.data?.profiles]
+  );
   const encryptionKeyMismatch = Boolean(profilesQuery.data?.encryptionKeyMismatch);
   const encryptionMessage =
     (profilesQuery.data?.encryptionMessage as string) || 'Encryption key changed. Reset encrypted profiles to continue.';
@@ -390,6 +394,16 @@ export function IpDashView() {
       : hostRemovalMode && offlineMode
       ? { tone: 'warning', text: 'Select IPs above, then confirm to remove them.' }
       : actionStatus;
+  const connectionStatusLabel =
+    connectionStatus.status === 'active'
+      ? 'Active'
+      : connectionStatus.status === 'inactive'
+      ? 'Inactive'
+      : connectionStatus.status === 'pending'
+      ? 'Pending'
+      : connectionStatus.status === 'local-offline'
+      ? 'Local Offline'
+      : 'Idle';
 
   const toggleScopeSelection = (scopeId: number) => {
     setSelectedScopeIds((prev) => (prev.includes(scopeId) ? prev.filter((id) => id !== scopeId) : [...prev, scopeId]));
@@ -573,6 +587,16 @@ export function IpDashView() {
   return (
     <div className="ipdash-view-root stack gap-4">
       <Surface variant="panel" className="ipdash-control-card stack gap-4">
+        {connectionStatus.text ? (
+          <div className="ipdash-connection-banner">
+            <span className="ipdash-connection-text">
+              {connectionStatus.text}{' '}
+              <span className={`ipdash-status-pill ipdash-status-${connectionStatus.status}`}>
+                {connectionStatusLabel}
+              </span>
+            </span>
+          </div>
+        ) : null}
         <div className="ipdash-switcher">
           {networks.length === 0 && (
             <span className="type-body-sm text-textSec">
@@ -835,15 +859,17 @@ function TableView({
 }: ViewProps) {
   if (entries.length === 1 && !entries[0].label) {
     return (
-      <SimpleTable
-        hosts={entries[0].hosts}
-        onSelect={onSelect}
-        onlineSet={onlineSet}
-        offlineMode={offlineMode}
-        hostRemovalMode={hostRemovalMode}
-        selectedHostIds={selectedHostIds}
-        toggleHostSelection={toggleHostSelection}
-      />
+      <div className="ipdash-table-scroll">
+        <SimpleTable
+          hosts={entries[0].hosts}
+          onSelect={onSelect}
+          onlineSet={onlineSet}
+          offlineMode={offlineMode}
+          hostRemovalMode={hostRemovalMode}
+          selectedHostIds={selectedHostIds}
+          toggleHostSelection={toggleHostSelection}
+        />
+      </div>
     );
   }
   return (

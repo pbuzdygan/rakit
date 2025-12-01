@@ -52,7 +52,6 @@ export function IpDashProfileMenu() {
                     <span className="ipdash-profile-name">{profile.name}</span>
                     {profile.location ? <span className="ipdash-profile-location">{profile.location}</span> : null}
                   </div>
-                  {profile.id === activeProfileId && <span className="badge tone">Active</span>}
                 </div>
               </DropdownItem>
             ))}

@@ -399,6 +399,9 @@ export function CabinetView() {
               {cabinet.location ? `${cabinet.location} • ` : ''}{cabinet.sizeU}U capacity
             </p>
           </div>
+          <p className="cabinet-summary type-body-sm text-textSec">
+            {devices.length} devices placed · {freeUnits} free U
+          </p>
           <div className="cabinet-header-actions">
             {confirmCabinetRemoval ? (
               <>
@@ -426,11 +429,6 @@ export function CabinetView() {
               </>
             )}
           </div>
-        </div>
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between">
-          <p className="type-body-sm text-textSec">
-            {devices.length} devices placed · {freeUnits} free U
-          </p>
         </div>
       </Surface>
 

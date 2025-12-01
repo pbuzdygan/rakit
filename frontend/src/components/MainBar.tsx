@@ -38,14 +38,13 @@ export function MainBar() {
   const ipDashViewMode = useAppStore((s) => s.ipDashViewMode);
   const setIpDashViewMode = useAppStore((s) => s.setIpDashViewMode);
   const triggerIpDashRefresh = useAppStore((s) => s.triggerIpDashRefresh);
-  const ipDashConnection = useAppStore((s) => s.ipDashConnectionStatus);
   const openIpDashProfileModal = useAppStore((s) => s.openIpDashProfileModal);
 
   const cabinetsQuery = useQuery({ queryKey: ['cabinets'], queryFn: Api.cabinets.list });
   const cabinets = (cabinetsQuery.data?.cabinets ?? []) as Array<{ id: number; name: string }>;
 
   const meta = VIEW_COPY[view];
-  const caption = view === 'ipdash' && ipDashConnection.text ? ipDashConnection.text : meta.caption;
+  const caption = view === 'ipdash' ? '' : meta.caption;
 
   useEffect(() => {
     if (view !== 'cabinet') return;
@@ -70,28 +69,7 @@ export function MainBar() {
         <div className="mainbar-head">
           <div className="stack-sm">
             <h2 className="type-title-xl">{meta.title}</h2>
-            {caption ? (
-              <p className={`type-body-sm ${view === 'ipdash' ? 'ipdash-connection-text' : 'text-textSec'}`}>
-                {caption}
-                {view === 'ipdash' ? (
-                  <>
-                    {' '}
-                    •{' '}
-                    <span className={`ipdash-status-pill ipdash-status-${ipDashConnection.status}`}>
-                      {ipDashConnection.status === 'active'
-                        ? 'Active'
-                        : ipDashConnection.status === 'inactive'
-                        ? 'Inactive'
-                        : ipDashConnection.status === 'pending'
-                        ? 'Pending'
-                        : ipDashConnection.status === 'local-offline'
-                        ? 'Local Offline'
-                        : 'Idle'}
-                    </span>
-                  </>
-                ) : null}
-              </p>
-            ) : null}
+            {caption ? <p className="type-body-sm text-textSec">{caption}</p> : null}
           </div>
           <div className="rakit-emblem hidden md:flex">
             <img

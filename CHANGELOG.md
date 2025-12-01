@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.2] - 2025-12-02
+
+### Fixed
+- Improved mobile responsiveness across Main Bar, IT Cabinet, and IP Dash dropdowns, ensuring menus stay visible, stack correctly, and can be selected on touch devices.
+- Relocated the IP Dash connection banner to the controls card and aligned its status pill with the connection text.
+- Adjusted rack header layout and action buttons for smaller screens to keep cabinet info readable and actions accessible.
+
 ## [1.1.1] - 2025-12-01
 
 ### Fixed

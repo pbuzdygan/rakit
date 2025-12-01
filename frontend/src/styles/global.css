@@ -262,11 +262,34 @@ html {
   gap: 0.35rem;
 }
 
+.cabinet-summary {
+  font-weight: 500;
+  margin: 0;
+}
+
 @media (min-width: 640px) {
   .cabinet-header {
-    flex-direction: row;
-    align-items: flex-start;
-    justify-content: space-between;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "info actions"
+      "summary actions";
+    column-gap: 1rem;
+    align-items: center;
+  }
+
+  .cabinet-header-info {
+    grid-area: info;
+  }
+
+  .cabinet-summary {
+    grid-area: summary;
+    margin-top: 0.2rem;
+  }
+
+  .cabinet-header-actions {
+    grid-area: actions;
+    justify-content: flex-end;
   }
 }
 
@@ -281,6 +304,7 @@ html {
   gap: 0.5rem;
   align-items: center;
   flex-wrap: wrap;
+  order: 3;
 }
 
 .ipdash-toolbar {
@@ -299,6 +323,20 @@ html {
   flex-wrap: wrap;
 }
 
+.ipdash-connection-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.ipdash-connection-banner .ipdash-status-pill {
+  font-size: 0.78rem;
+  margin-left: 0.3rem;
+}
+
 @media (max-width: 640px) {
   .ipdash-toolbar {
     flex-direction: column;
@@ -311,8 +349,16 @@ html {
     justify-content: space-between;
   }
 
+  .ipdash-toolbar-left {
+    flex-wrap: nowrap;
+    gap: 0.4rem;
+  }
+
+  .ipdash-toolbar-left .soft-button {
+    flex: 1 1 0;
+  }
+
   .ipdash-toolbar .soft-button {
-    flex: 1 1 calc(50% - 0.35rem);
     min-width: 0;
   }
 }
@@ -760,7 +806,8 @@ html {
     text-align: center;
   }
 
-  .grouped-table-scroll {
+  .grouped-table-scroll,
+  .ipdash-table-scroll {
     margin: 0 -0.25rem;
     padding: 0 0.25rem 0.25rem;
   }
@@ -777,16 +824,19 @@ html {
   box-shadow: var(--shadow-soft);
 }
 
+.ipdash-table-scroll,
 .grouped-table-scroll {
   width: 100%;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
 }
 
+.ipdash-table-scroll::-webkit-scrollbar,
 .grouped-table-scroll::-webkit-scrollbar {
   height: 6px;
 }
 
+.ipdash-table-scroll::-webkit-scrollbar-thumb,
 .grouped-table-scroll::-webkit-scrollbar-thumb {
   background: color-mix(in srgb, var(--border-subtle) 80%, transparent);
   border-radius: 999px;
@@ -1470,6 +1520,8 @@ html {
 
 .mainbar-shell {
   padding: 1.5rem;
+  position: relative;
+  z-index: 80;
 }
 
 .mainbar-head {
@@ -1639,6 +1691,10 @@ html {
   }
 }
 
+.dropdown-root {
+  position: relative;
+}
+
 .dropdown-panel {
   border-radius: 1.25rem;
   border: 1px solid var(--soft-border);
@@ -1646,7 +1702,21 @@ html {
   box-shadow: var(--layer-shadow-strong);
   padding: 0.4rem;
   animation: dropdownFade 0.18s ease forwards;
-  z-index: 60;
+  z-index: 500;
+  min-width: min(18rem, calc(100vw - 2rem));
+  max-width: calc(100vw - 1.25rem);
+  top: calc(100% + 0.5rem);
+}
+
+@media (max-width: 640px) {
+  .dropdown-panel.dropdown-right,
+  .dropdown-panel.dropdown-left {
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    width: calc(100vw - 1.5rem);
+    max-width: calc(100vw - 1.5rem);
+  }
 }
 
 .year-trigger {

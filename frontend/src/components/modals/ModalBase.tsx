@@ -31,7 +31,7 @@ export function ModalBase({
     <AnimatePresence>
       {open && (
         <motion.div
-          className="fixed inset-0 z-[90] bg-black/40 backdrop-blur-sm flex items-center justify-center modal-overlay-premium p-4 sm:p-6"
+          className="fixed inset-0 z-[900] bg-black/40 backdrop-blur-sm flex items-center justify-center modal-overlay-premium p-4 sm:p-6"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
