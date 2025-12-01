@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.1.2] - 2025-12-02
+## [1.1.2] - 2025-12-01
 
 ### Fixed
 - Improved mobile responsiveness across Main Bar, IT Cabinet, and IP Dash dropdowns, ensuring menus stay visible, stack correctly, and can be selected on touch devices.
