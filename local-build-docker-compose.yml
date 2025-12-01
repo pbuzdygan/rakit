@@ -7,7 +7,7 @@ services:
     environment:
       - PORT=9011
       - DB_FILE=/data/rakit_db.sqlite
-      - APP_PIN=123456
+      - APP_PIN=REPLACE_WITH_YOUR_PIN
       - NODE_ENV=production
       - APP_ENC_KEY=YOUR_ENC_KEY_HERE
     volumes:

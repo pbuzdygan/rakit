@@ -69,7 +69,9 @@ services:
 
 # Network mode for Rakit - recommended for using all Rakit API's integrations
     network_mode: host
-# Rakit backend/frontend listens on port 8011 inside the container - required only in different than "network_mode host" modes
+    
+# Rakit backend/frontend listens on port 8011 inside the container
+# Not required in "network_mode host"
 #    ports:
 #      - "8011:8011"
 
@@ -80,7 +82,7 @@ services:
 # Environment variables
     environment:
       - PORT=8011 #in network_mode host You can set different than default port
-      - DB_FILE=/data/mopay.sqlite
+      - DB_FILE=/data/rakit.sqlite
       - APP_PIN=REPLACE_WITH_YOUR_PIN #PIN 4-8 digits
       - APP_ENC_KEY=REPLACE_WITH_YOUR_KEY
       - NODE_ENV=production

@@ -1,18 +1,23 @@
 services:
-  mopay:
+  rakit:
     image: ghcr.io/pbuzdygan/rakit:latest
     container_name: rakit
     restart: unless-stopped
+
+# Network mode for Rakit - recommended for using all Rakit API's integrations
     network_mode: host
-# Environment variables
-    environment:
-      - PORT=8011 #in network_mode host You can set different than default port
-      - DB_FILE=/data/rakit_db.sqlite
-      - APP_PIN=123456 #PIN 4-8 digits
-      - NODE_ENV=production
-      - APP_ENC_KEY=YOUR_ENC_KEY_HERE
+# Rakit backend/frontend listens on port 8011 inside the container - required only in different than "network_mode host" modes
+#    ports:
+#      - "8011:8011"
+
 # Persistent data (if backend writes anything to /data)
     volumes:
       - ./data:/data
-#    ports:
-#      - "8011:8011"
+
+# Environment variables
+    environment:
+      - PORT=8011 #in network_mode host You can set different than default port
+      - DB_FILE=/data/rakit.sqlite
+      - APP_PIN=REPLACE_WITH_YOUR_PIN #PIN 4-8 digits
+      - APP_ENC_KEY=REPLACE_WITH_YOUR_KEY
+      - NODE_ENV=production
