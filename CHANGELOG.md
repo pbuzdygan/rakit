@@ -2,7 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.1] - 2025-11-31
+## [1.1.1] - 2025-12-01
+
+### Fixed
+- Container now exits with `Error: APP_PIN must be provided (4-8 digits)` when the PIN is missing or invalid, preventing the app from starting without a proper secret.
+
+## [1.1] - 2024-03-10
 
 ### Added
 - Application-wide encryption for IP Dash controller API keys powered by the new `APP_ENC_KEY` secret and AES-256-GCM at rest.
