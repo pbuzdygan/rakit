@@ -101,7 +101,9 @@ export function MainBar() {
           </div>
         </div>
 
-        <VersionIndicator compact />
+        <div className="version-indicator-row">
+          <VersionIndicator compact />
+        </div>
 
         <div className="mainbar-tabs-row">
           <div className="chip-group mainbar-tabs" role="tablist" aria-label="Rakit views">

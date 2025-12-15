@@ -1551,7 +1551,9 @@ html {
 }
 
 .mainbar-tabs {
-  width: 100%;
+  width: auto;
+  flex: 1 1 auto;
+  min-width: 0;
   justify-content: flex-start;
 }
 
@@ -1560,7 +1562,12 @@ html {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+}
+
+.version-indicator-row {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .utility-group {
@@ -1586,6 +1593,11 @@ html {
 
   .mainbar-tabs-row {
     align-items: stretch;
+    flex-wrap: wrap;
+  }
+
+  .version-indicator-row {
+    justify-content: flex-start;
   }
 }
 
