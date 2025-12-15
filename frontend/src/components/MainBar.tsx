@@ -68,7 +68,7 @@ export function MainBar() {
     <div className="py-3">
       <Surface className="stack gap-4 mainbar-shell">
         <div className="mainbar-head">
-          <div className="stack-sm">
+          <div className="stack-sm mainbar-title-block">
             <h2 className="type-title-xl">{meta.title}</h2>
             {caption ? <p className="type-body-sm text-textSec">{caption}</p> : null}
           </div>
