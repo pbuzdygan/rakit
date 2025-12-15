@@ -44,6 +44,10 @@ type State = {
   ipDashProfileModalOpen: boolean;
   ipDashConnectionStatus: ConnectionStatus;
   ipDashActiveProfileId: number | null;
+  appVersion: string | null;
+  latestVersion: string | null;
+  releaseChannel: string | null;
+  updateAvailable: boolean;
   modals: {
     export: boolean;
     settings: boolean;
@@ -70,6 +74,9 @@ type State = {
   closeModal: (k: keyof State['modals']) => void;
   openCommentModal: (deviceId: number, cabinetId: number, value: string) => void;
   closeCommentModal: () => void;
+  setAppVersion: (version: string | null) => void;
+  setLatestVersion: (version: string | null) => void;
+  setReleaseChannel: (channel: string | null) => void;
 };
 
 export const useAppStore = create<State>((set, get) => ({
@@ -81,6 +88,10 @@ export const useAppStore = create<State>((set, get) => ({
   ipDashProfileModalOpen: false,
   ipDashConnectionStatus: { text: '', status: 'idle' },
   ipDashActiveProfileId: load<number | null>('ipdash-profile', null),
+  appVersion: null,
+  latestVersion: null,
+  releaseChannel: 'main',
+  updateAvailable: false,
   modals: {
     export: false,
     settings: false,
@@ -158,4 +169,55 @@ export const useAppStore = create<State>((set, get) => ({
     set({
       modals: { ...get().modals, comment: { open: false, deviceId: null, cabinetId: null, value: '' } },
     }),
+  setAppVersion: (version) =>
+    set((state) => ({
+      appVersion: version,
+      updateAvailable: compareVersions(version, state.latestVersion) < 0,
+    })),
+  setLatestVersion: (version) =>
+    set((state) => ({
+      latestVersion: version,
+      updateAvailable: compareVersions(state.appVersion, version) < 0,
+    })),
+  setReleaseChannel: (channel) =>
+    set((state) => {
+      const normalized = channel ?? 'main';
+      if (state.releaseChannel === normalized) return {};
+      return { releaseChannel: normalized, latestVersion: null, updateAvailable: false };
+    }),
 }));
+
+export function compareVersions(a?: string | null, b?: string | null) {
+  if (!a && !b) return 0;
+  if (!a) return -1;
+  if (!b) return 1;
+  const partsA = normalizeVersion(a);
+  const partsB = normalizeVersion(b);
+  const len = Math.max(partsA.length, partsB.length);
+  for (let i = 0; i < len; i += 1) {
+    const rawA = partsA[i] ?? '0';
+    const rawB = partsB[i] ?? '0';
+    const numA = Number(rawA);
+    const numB = Number(rawB);
+    const isNumA = Number.isFinite(numA);
+    const isNumB = Number.isFinite(numB);
+    if (isNumA && isNumB) {
+      if (numA > numB) return 1;
+      if (numA < numB) return -1;
+      continue;
+    }
+    if (isNumA && !isNumB) return 1;
+    if (!isNumA && isNumB) return -1;
+    const cmp = rawA.localeCompare(rawB, undefined, { sensitivity: 'base' });
+    if (cmp !== 0) return cmp > 0 ? 1 : -1;
+  }
+  return 0;
+}
+
+function normalizeVersion(value: string) {
+  return value
+    .trim()
+    .replace(/^v/i, '')
+    .split(/[^0-9A-Za-z]+/)
+    .filter(Boolean);
+}

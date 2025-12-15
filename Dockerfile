@@ -2,6 +2,12 @@
 # 1️⃣ BUILD STAGE
 # ───────────────────────────────────────────────
 FROM node:20-bookworm-slim AS build
+ARG APP_VERSION=dev
+ARG APP_REPO=buzuser/rakit_dev
+ARG APP_CHANNEL=main
+ENV VITE_APP_VERSION=$APP_VERSION
+ENV VITE_GITHUB_REPO=$APP_REPO
+ENV VITE_APP_CHANNEL=$APP_CHANNEL
 
 WORKDIR /app
 
@@ -34,6 +40,12 @@ RUN npm cache clean --force
 # 2️⃣ RUNTIME STAGE
 # ───────────────────────────────────────────────
 FROM node:20-bookworm-slim AS runtime
+ARG APP_VERSION=dev
+ARG APP_REPO=buzuser/rakit_dev
+ARG APP_CHANNEL=main
+ENV APP_VERSION=$APP_VERSION
+ENV APP_REPO=$APP_REPO
+ENV APP_CHANNEL=$APP_CHANNEL
 
 WORKDIR /app
 ENV NODE_ENV=production

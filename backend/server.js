@@ -24,6 +24,9 @@ const APP_ENC_KEY = process.env.APP_ENC_KEY || '';
 const APP_ENC_FINGERPRINT = APP_ENC_KEY
   ? crypto.createHash('sha256').update(APP_ENC_KEY, 'utf8').digest('hex')
   : '';
+const APP_VERSION = process.env.APP_VERSION || 'dev';
+const APP_REPO = process.env.APP_REPO || 'buzuser/rakit_dev';
+const APP_CHANNEL = process.env.APP_CHANNEL || 'main';
 const IP_DASH_TIMEOUT_MS = Number(process.env.IP_DASH_TIMEOUT_MS || 15000);
 const LOCAL_OFFLINE_MODE = 'local-offline';
 const ENC_KEY_META_KEY = 'app_enc_key_fingerprint';
@@ -431,6 +434,10 @@ app.use(morgan('dev'));
 
 // Health check
 app.get('/health', (_req,res)=> res.json({ status: 'ok' }));
+
+app.get('/api/meta', (_req,res)=>{
+  res.json({ version: APP_VERSION, repo: APP_REPO, channel: APP_CHANNEL });
+});
 
 // Pin verification (auto-pass if APP_PIN empty)
 app.post('/api/pin/verify', (req,res)=>{

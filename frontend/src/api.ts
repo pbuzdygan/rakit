@@ -10,6 +10,7 @@ async function api(path: string, init?: RequestInit) {
 }
 
 export const Api = {
+  meta: () => api('/api/meta'),
   verifyPin: (pin: string) => api('/api/pin/verify', { method: 'POST', body: JSON.stringify({ pin }) }),
   cabinets: {
     list: () => api('/api/cabinets'),

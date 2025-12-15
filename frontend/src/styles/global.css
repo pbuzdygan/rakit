@@ -2426,3 +2426,66 @@ html.theme-changing * {
     width: 100%;
   }
 }
+
+.version-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.version-indicator.compact {
+  font-size: 0.78rem;
+}
+
+.version-indicator .status-dot,
+.version-indicator .pulse-dot {
+  display: inline-block;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.version-indicator .status-dot {
+  background: var(--text-secondary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--text-secondary) 25%, transparent);
+}
+
+.version-indicator.update {
+  color: var(--accent-strong);
+  font-weight: 600;
+}
+
+.version-indicator.update:hover {
+  text-decoration: underline;
+}
+
+.version-indicator .pulse-dot {
+  position: relative;
+  background: var(--accent);
+}
+
+.version-indicator .pulse-dot::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 999px;
+  border: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  animation: versionPulse 1.6s infinite;
+}
+
+@keyframes versionPulse {
+  from {
+    opacity: 0.9;
+    transform: scale(0.65);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.6);
+  }
+}

@@ -6,6 +6,7 @@ import { DropdownMenu, DropdownItem } from './DropdownMenu';
 import { SoftButton } from './SoftButton';
 import { Surface } from './Surface';
 import { IpDashProfileMenu } from './ipdash/IpDashProfileMenu';
+import { VersionIndicator } from './VersionIndicator';
 
 type ViewId = 'cabinet' | 'ipdash';
 
@@ -70,6 +71,7 @@ export function MainBar() {
           <div className="stack-sm">
             <h2 className="type-title-xl">{meta.title}</h2>
             {caption ? <p className="type-body-sm text-textSec">{caption}</p> : null}
+            <VersionIndicator compact />
           </div>
           <div className="rakit-emblem hidden md:flex">
             <img
