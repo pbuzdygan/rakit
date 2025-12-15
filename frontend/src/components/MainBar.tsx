@@ -71,7 +71,6 @@ export function MainBar() {
           <div className="stack-sm">
             <h2 className="type-title-xl">{meta.title}</h2>
             {caption ? <p className="type-body-sm text-textSec">{caption}</p> : null}
-            <VersionIndicator compact />
           </div>
           <div className="rakit-emblem hidden md:flex">
             <img
@@ -99,52 +98,56 @@ export function MainBar() {
                 {theme === 'light' ? '🌙' : '☀️'}
               </span>
             </SoftButton>
-            <DropdownMenu label="Menu" align="right" buttonClassName="utility-menu-btn">
-              {({ close }) => (
-                <>
-                  <DropdownItem
-                    onSelect={() => {
-                      openModal('export');
-                      close();
-                    }}
-                  >
-                    Export snapshot
-                  </DropdownItem>
-                  <DropdownItem
-                    onSelect={() => {
-                      openIpDashProfileModal();
-                      close();
-                    }}
-                  >
-                    Manage profiles
-                  </DropdownItem>
-                  <DropdownItem
-                    onSelect={() => {
-                      openModal('settings');
-                      close();
-                    }}
-                  >
-                    Settings
-                  </DropdownItem>
-                </>
-              )}
-            </DropdownMenu>
           </div>
         </div>
 
-        <div className="chip-group mainbar-tabs" role="tablist" aria-label="Rakit views">
-          {VIEW_TABS.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              role="tab"
-              aria-selected={view === item.id}
-              className={`chip-button ${view === item.id ? 'active' : ''}`}
-              onClick={() => setView(item.id)}
-            >
-              {item.label}
-            </button>
-          ))}
+        <VersionIndicator compact />
+
+        <div className="mainbar-tabs-row">
+          <div className="chip-group mainbar-tabs" role="tablist" aria-label="Rakit views">
+            {VIEW_TABS.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                role="tab"
+                aria-selected={view === item.id}
+                className={`chip-button ${view === item.id ? 'active' : ''}`}
+                onClick={() => setView(item.id)}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+          <DropdownMenu label="Menu" align="right" buttonClassName="utility-menu-btn">
+            {({ close }) => (
+              <>
+                <DropdownItem
+                  onSelect={() => {
+                    openModal('export');
+                    close();
+                  }}
+                >
+                  Export snapshot
+                </DropdownItem>
+                <DropdownItem
+                  onSelect={() => {
+                    openIpDashProfileModal();
+                    close();
+                  }}
+                >
+                  Manage profiles
+                </DropdownItem>
+                <DropdownItem
+                  onSelect={() => {
+                    openModal('settings');
+                    close();
+                  }}
+                >
+                  Settings
+                </DropdownItem>
+              </>
+            )}
+          </DropdownMenu>
         </div>
 
         {view === 'ipdash' && (

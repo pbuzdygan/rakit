@@ -1555,6 +1555,14 @@ html {
   justify-content: flex-start;
 }
 
+.mainbar-tabs-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
 .utility-group {
   gap: 0.65rem;
 }
