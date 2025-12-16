@@ -1371,15 +1371,8 @@ html {
 .porthub-toolbar {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.porthub-toolbar-racks {
-  display: flex;
-  flex-wrap: wrap;
   gap: 0.5rem;
+  align-items: center;
 }
 
 .porthub-shell {
@@ -1456,11 +1449,21 @@ html {
 
 .porthub-device-meta {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
+  flex-direction: column;
+  gap: 0.25rem;
   border-bottom: 1px dashed var(--border-subtle);
   padding-bottom: 0.75rem;
+}
+
+.porthub-device-meta h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.porthub-device-location {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  font-weight: 500;
 }
 
 .porthub-port-grid {
@@ -1481,7 +1484,9 @@ html {
 }
 
 .porthub-port.has-data {
-  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  border-color: color-mix(in srgb, var(--success) 55%, transparent);
+  background: color-mix(in srgb, var(--success) 18%, transparent);
+  color: color-mix(in srgb, var(--success) 90%, black);
 }
 
 .porthub-port.selected {
@@ -1504,6 +1509,11 @@ html {
   display: grid;
   gap: 0.85rem;
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+
+.porthub-form-grid.compact {
+  gap: 0.65rem;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
 }
 
 .porthub-form-grid .full-span {

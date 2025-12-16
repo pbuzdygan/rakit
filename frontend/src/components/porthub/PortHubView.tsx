@@ -121,27 +121,24 @@ export function PortHubView() {
   const deviceSelected = Boolean(activeDevice);
   const portSelected = deviceSelected && selectedPort != null;
 
+  const filterButtons: Array<{ id: 'all' | number; label: string }> = [
+    { id: 'all', label: 'All Devices' },
+    ...cabinets.map((cabinet) => ({ id: cabinet.id, label: cabinet.name })),
+  ];
+
   return (
     <div className="stack gap-4">
       <Surface className="stack gap-4">
         <div className="porthub-toolbar">
-          <SoftButton
-            variant={activeCabinetId === 'all' ? 'solid' : 'ghost'}
-            onClick={() => setActiveCabinetId('all')}
-          >
-            All Devices
-          </SoftButton>
-          <div className="porthub-toolbar-racks">
-            {cabinets.map((cabinet) => (
-              <SoftButton
-                key={cabinet.id}
-                variant={activeCabinetId === cabinet.id ? 'solid' : 'ghost'}
-                onClick={() => setActiveCabinetId(cabinet.id)}
-              >
-                {cabinet.name}
-              </SoftButton>
-            ))}
-          </div>
+          {filterButtons.map((button) => (
+            <SoftButton
+              key={button.id}
+              variant={activeCabinetId === button.id ? 'solid' : 'ghost'}
+              onClick={() => setActiveCabinetId(button.id)}
+            >
+              {button.label}
+            </SoftButton>
+          ))}
         </div>
         <div className="porthub-shell">
           <div className="porthub-sidebar">
@@ -176,14 +173,11 @@ export function PortHubView() {
             ) : (
               <>
                 <div className="porthub-device-meta">
-                  <div>
-                    <h3>{activeDevice.type}</h3>
-                    {activeDevice.model ? <p className="text-textSec">{activeDevice.model}</p> : null}
-                  </div>
-                  <div className="text-textSec">
-                    <p>{activeDevice.cabinetName}</p>
-                    <p>{activeDevice.numberOfPorts} ports</p>
-                  </div>
+                  <h3>
+                    {activeDevice.type}{' '}
+                    <span className="porthub-device-location">in {activeDevice.cabinetName}</span>
+                  </h3>
+                  {activeDevice.model ? <p className="text-textSec">{activeDevice.model}</p> : null}
                 </div>
                 <div className="porthub-port-grid">
                   {Array.from({ length: activeDevice.numberOfPorts }, (_, idx) => {
@@ -209,14 +203,11 @@ export function PortHubView() {
                   })}
                 </div>
                 <div className="porthub-port-form">
-                  <div className="porthub-form-head">
-                    <h4>Port details</h4>
-                    <p className="type-caption text-textSec">
-                      {portSelected ? `Editing port ${selectedPort}` : 'Select a port to edit its metadata.'}
-                    </p>
-                    {statusMessage && <p className="type-caption text-textSec">{statusMessage}</p>}
-                  </div>
-                  <div className="porthub-form-grid">
+                  {!portSelected && (
+                    <p className="type-caption text-textSec">Select a port to edit its metadata.</p>
+                  )}
+                  {statusMessage && <p className="type-caption text-textSec">{statusMessage}</p>}
+                  <div className="porthub-form-grid compact">
                     <label className="stack-sm">
                       <span className="field-label">Patch Panel</span>
                       <input
@@ -247,14 +238,14 @@ export function PortHubView() {
                         placeholder="192.0.2.1"
                       />
                     </label>
-                    <label className="stack-sm full-span">
+                    <label className="stack-sm">
                       <span className="field-label">Comment</span>
-                      <textarea
-                        className="input min-h-[84px]"
+                      <input
+                        className="input"
                         value={portForm.comment}
                         onChange={(e) => handlePortFieldChange('comment', e.target.value)}
                         disabled={!portSelected || isSaving}
-                        placeholder="Notes for this port"
+                        placeholder="Notes"
                       />
                     </label>
                   </div>
