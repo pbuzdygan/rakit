@@ -1052,8 +1052,7 @@ html {
   width: 100%;
 }
 
-.profile-action-row,
-.profile-remove-row {
+.profile-action-row {
   display: flex;
   gap: 0.35rem;
   justify-content: flex-start;
@@ -1099,18 +1098,13 @@ html {
     align-items: stretch;
   }
 
-  .profile-action-row,
-  .profile-remove-row {
+  .profile-action-row {
     justify-content: center;
   }
 
   .profile-action-row .soft-button {
     flex: 1 1 50%;
     min-width: 0;
-  }
-
-  .profile-remove-row .soft-button {
-    flex: 1 1 auto;
   }
 }
 .tag-chip {

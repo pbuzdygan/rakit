@@ -443,8 +443,6 @@ export function IpDashProfileModal() {
                       >
                         {editingProfile?.id === profile.id ? 'Cancel edit' : 'Edit'}
                       </SoftButton>
-                    </div>
-                    <div className="profile-remove-row">
                       {confirmRemoveId === profile.id && (
                         <SoftButton
                           variant="ghost"
