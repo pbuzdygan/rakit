@@ -276,10 +276,22 @@ html {
   flex-wrap: wrap;
   gap: 0.75rem;
   align-items: center;
+  justify-content: space-between;
 }
 
 .mainbar-action-bar .soft-button {
   min-width: 140px;
+}
+
+.mainbar-action-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.mainbar-action-bar .version-indicator {
+  margin-left: auto;
 }
 
 .cabinet-selector {
@@ -352,6 +364,14 @@ html {
   align-items: center;
   gap: 0.5rem;
   flex-wrap: wrap;
+}
+
+.ipdash-toolbar-right {
+  justify-content: flex-end;
+}
+
+.ipdash-toolbar-right .version-indicator {
+  margin-left: 0.5rem;
 }
 
 .ipdash-connection-banner {
@@ -1625,9 +1645,6 @@ html {
 }
 
 .mainbar-tab-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.85rem;
   flex-shrink: 0;
 }
 
@@ -2333,18 +2350,18 @@ html.theme-changing * {
 }
 
 .modal-header-premium {
+  position: relative;
   padding-bottom: 0.35rem;
+  padding-right: 2.75rem;
   border-bottom: 1px solid color-mix(in srgb, var(--border-subtle) 65%, transparent);
-  display: flex;
-  justify-content: flex-start;
-  align-items: flex-start;
-  flex-wrap: nowrap;
-  gap: 0.75rem;
 }
 
 .modal-title-region {
-  flex: 1 1 auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
   min-width: 0;
+  flex: 1 1 auto;
 }
 
 .modal-body-premium > .stack {
@@ -2361,6 +2378,9 @@ html.theme-changing * {
 .modal-close-compact {
   padding-inline: 0.5rem;
   padding-block: 0.25rem;
+  position: absolute;
+  top: 0;
+  right: 0;
 }
 
 /* Ghost button w modalu (Cancel itp.) */

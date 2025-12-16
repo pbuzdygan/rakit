@@ -118,7 +118,6 @@ export function MainBar() {
               ))}
             </div>
             <div className="mainbar-tab-actions">
-              <VersionIndicator compact />
               <DropdownMenu label="Menu" align="right" buttonClassName="utility-menu-btn">
                 {({ close }) => (
                   <>
@@ -173,45 +172,49 @@ export function MainBar() {
               </div>
               <div className="ipdash-toolbar-right">
                 <IpDashProfileMenu />
+                <VersionIndicator compact />
               </div>
             </div>
           )}
 
           {view === 'cabinet' && (
             <div className="mainbar-action-bar">
-              <SoftButton
-                onClick={() => {
-                  setEditingCabinetId(null);
-                  openModal('addCabinet');
-                }}
-              >
-                Add cabinet
-              </SoftButton>
-              <DropdownMenu
-                label={
-                  cabinetsQuery.isFetching
-                    ? 'Loading cabinets...'
-                    : `Cabinet: ${cabinets.find((c) => c.id === selectedCabinetId)?.name ?? 'Select'}`
-                }
-                buttonClassName="cabinet-selector"
-              >
-                {({ close }) => (
-                  <>
-                    {cabinets.length === 0 && <DropdownItem disabled>No cabinets yet</DropdownItem>}
-                    {cabinets.map((cabinet) => (
-                      <DropdownItem
-                        key={cabinet.id}
-                        onSelect={() => {
-                          setSelectedCabinetId(cabinet.id);
-                          close();
-                        }}
-                      >
-                        {cabinet.name}
-                      </DropdownItem>
-                    ))}
-                  </>
-                )}
-              </DropdownMenu>
+              <div className="mainbar-action-controls">
+                <SoftButton
+                  onClick={() => {
+                    setEditingCabinetId(null);
+                    openModal('addCabinet');
+                  }}
+                >
+                  Add cabinet
+                </SoftButton>
+                <DropdownMenu
+                  label={
+                    cabinetsQuery.isFetching
+                      ? 'Loading cabinets...'
+                      : `Cabinet: ${cabinets.find((c) => c.id === selectedCabinetId)?.name ?? 'Select'}`
+                  }
+                  buttonClassName="cabinet-selector"
+                >
+                  {({ close }) => (
+                    <>
+                      {cabinets.length === 0 && <DropdownItem disabled>No cabinets yet</DropdownItem>}
+                      {cabinets.map((cabinet) => (
+                        <DropdownItem
+                          key={cabinet.id}
+                          onSelect={() => {
+                            setSelectedCabinetId(cabinet.id);
+                            close();
+                          }}
+                        >
+                          {cabinet.name}
+                        </DropdownItem>
+                      ))}
+                    </>
+                  )}
+                </DropdownMenu>
+              </div>
+              <VersionIndicator compact />
             </div>
           )}
         </div>

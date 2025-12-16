@@ -48,8 +48,8 @@ export function ModalBase({
             transition={{ duration: 0.18, ease: [0.2, 0.8, 0.2, 1] }}
           >
             {/* Header */}
-            <div className="modal-header-premium flex flex-nowrap items-start gap-3">
-              <div className="flex items-center gap-3 modal-title-region">
+            <div className="modal-header-premium">
+              <div className="modal-title-region">
                 {icon && (
                   <div className="shrink-0 h-9 w-9 rounded-2xl flex items-center justify-center modal-icon-premium">
                     {icon}
@@ -68,7 +68,7 @@ export function ModalBase({
               {!disableClose && (
                 <button
                   type="button"
-                  className="btn btn-ghost-premium modal-close-compact ml-auto"
+                  className="btn btn-ghost-premium modal-close-compact"
                   onClick={onClose}
                 >
                   ✕
