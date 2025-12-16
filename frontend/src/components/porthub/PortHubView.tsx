@@ -293,7 +293,26 @@ export function PortHubView() {
                     updatePort.isPending && updatePort.variables?.deviceId === device.id;
                   const deletingThisDevice =
                     deleteDevice.isPending && deleteDevice.variables?.deviceId === device.id;
+                  const hasFormValue =
+                    Boolean(form.patchPanel) ||
+                    Boolean(form.vlan) ||
+                    Boolean(form.ipAddress) ||
+                    Boolean(form.comment);
                   const saveDisabled = !portSelected || deviceSaving;
+                  const handleSavePort = () => {
+                    if (!portSelected || saveDisabled) return;
+                    updatePort.mutateAsync({
+                      deviceId: device.id,
+                      cabinetId: device.cabinetId,
+                      portNumber: portSelected,
+                      payload: {
+                        patchPanel: form.patchPanel || null,
+                        vlan: form.vlan || null,
+                        comment: form.comment || null,
+                        ipAddress: form.ipAddress || null,
+                      },
+                    });
+                  };
                   return (
                     <div key={device.id} className="porthub-device-section">
                       <div className="porthub-device-meta">
@@ -313,6 +332,14 @@ export function PortHubView() {
                               aria-pressed={linkMode}
                             >
                               {linkMode ? 'Exit mode' : 'Link mode'}
+                            </button>
+                            <button
+                              type="button"
+                              className={`device-save-button ${hasFormValue && !saveDisabled ? 'dirty' : ''}`}
+                              onClick={handleSavePort}
+                              disabled={saveDisabled}
+                            >
+                              {deviceSaving ? 'Saving…' : 'Save'}
                             </button>
                             {deleteConfirmationId === device.id ? (
                               <>
@@ -368,6 +395,14 @@ export function PortHubView() {
                                   disabled={deletingThisDevice}
                                 >
                                   <IconTrash className="device-action-icon" />
+                                </button>
+                                <button
+                                  type="button"
+                                  className="device-clear-button"
+                                  onClick={() => clearPortForm(device.id)}
+                                  disabled={saveDisabled}
+                                >
+                                  Clear
                                 </button>
                               </>
                             )}
@@ -434,33 +469,6 @@ export function PortHubView() {
                               placeholder="192.0.2.1"
                             />
                           </label>
-                          <div className="porthub-form-actions porthub-form-actions-inline">
-                            <SoftButton
-                              variant="ghost"
-                              onClick={() => clearPortForm(device.id)}
-                              disabled={saveDisabled}
-                            >
-                              Clear
-                            </SoftButton>
-                            <SoftButton
-                              onClick={() =>
-                                updatePort.mutateAsync({
-                                  deviceId: device.id,
-                                  cabinetId: device.cabinetId,
-                                  portNumber: portSelected!,
-                                  payload: {
-                                    patchPanel: form.patchPanel || null,
-                                    vlan: form.vlan || null,
-                                    comment: form.comment || null,
-                                    ipAddress: form.ipAddress || null,
-                                  },
-                                })
-                              }
-                              disabled={saveDisabled}
-                            >
-                              {deviceSaving ? 'Saving…' : 'Save'}
-                            </SoftButton>
-                          </div>
                           <label className="stack-sm porthub-field-comment">
                             <span className="field-label">Comment</span>
                             <input
