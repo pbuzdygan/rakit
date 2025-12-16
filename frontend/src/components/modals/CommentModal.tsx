@@ -20,6 +20,7 @@ export function CommentModal() {
       Api.devices.update(cabinetId, deviceId, { comment }),
     onSuccess: async (_, vars) => {
       await qc.invalidateQueries({ queryKey: ['cabinet-devices', vars.cabinetId] });
+      await qc.invalidateQueries({ queryKey: ['porthub-devices'] });
       closeCommentModal();
     },
   });

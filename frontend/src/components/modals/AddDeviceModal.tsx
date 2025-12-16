@@ -135,15 +135,27 @@ export function AddDeviceModal() {
   };
 
   const mutation = useMutation({
-    mutationFn: async ({ cabinetId, payload }: { cabinetId: number; payload: any }) => {
-      if (editingDevice) {
-        return Api.devices.update(cabinetId, editingDevice.id, payload);
+    mutationFn: async ({
+      cabinetId,
+      payload,
+      deviceId,
+    }: {
+      cabinetId: number;
+      payload: any;
+      deviceId: number | null;
+    }) => {
+      if (deviceId) {
+        return Api.devices.update(cabinetId, deviceId, payload);
       }
       return Api.devices.create(cabinetId, payload);
     },
     onSuccess: async (_, variables) => {
       await qc.invalidateQueries({ queryKey: ['cabinet-devices', variables.cabinetId] });
       await qc.invalidateQueries({ queryKey: ['modules'] });
+      await qc.invalidateQueries({ queryKey: ['porthub-devices'] });
+      if (variables.deviceId) {
+        await qc.invalidateQueries({ queryKey: ['device-ports', variables.cabinetId, variables.deviceId] });
+      }
       reset();
       closeModal('addDevice');
     },
@@ -171,6 +183,7 @@ export function AddDeviceModal() {
     await mutation.mutateAsync({
       cabinetId,
       payload,
+      deviceId: editingDevice?.id ?? null,
     });
   };
 

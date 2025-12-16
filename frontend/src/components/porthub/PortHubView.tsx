@@ -377,15 +377,10 @@ export function PortHubView() {
                         })}
                       </div>
                       <div className="porthub-port-form">
-                        {!portSelected && (
-                          <p className="type-caption text-textSec">
-                            Select a port to edit its metadata.
-                          </p>
-                        )}
                         {statusMessage && <p className="type-caption text-textSec">{statusMessage}</p>}
-                        <div className="porthub-form-grid compact">
-                          <label className="stack-sm">
-                            <span className="field-label">Patch Panel</span>
+                        <div className="porthub-form-grid compact with-actions">
+                          <label className="stack-sm porthub-field-narrow">
+                            <span className="field-label">Tag</span>
                             <input
                               className="input"
                               value={form.patchPanel}
@@ -393,10 +388,10 @@ export function PortHubView() {
                                 handlePortFieldChange(device.id, 'patchPanel', e.target.value)
                               }
                               disabled={saveDisabled}
-                              placeholder="Panel / port"
+                              placeholder="Tag"
                             />
                           </label>
-                          <label className="stack-sm">
+                          <label className="stack-sm porthub-field-narrow">
                             <span className="field-label">VLAN</span>
                             <input
                               className="input"
@@ -406,7 +401,7 @@ export function PortHubView() {
                               placeholder="VLAN"
                             />
                           </label>
-                          <label className="stack-sm">
+                          <label className="stack-sm porthub-field-narrow">
                             <span className="field-label">Address IP</span>
                             <input
                               className="input"
@@ -418,7 +413,34 @@ export function PortHubView() {
                               placeholder="192.0.2.1"
                             />
                           </label>
-                          <label className="stack-sm">
+                          <div className="porthub-form-actions porthub-form-actions-inline">
+                            <SoftButton
+                              variant="ghost"
+                              onClick={() => clearPortForm(device.id)}
+                              disabled={saveDisabled}
+                            >
+                              Clear
+                            </SoftButton>
+                            <SoftButton
+                              onClick={() =>
+                                updatePort.mutateAsync({
+                                  deviceId: device.id,
+                                  cabinetId: device.cabinetId,
+                                  portNumber: portSelected!,
+                                  payload: {
+                                    patchPanel: form.patchPanel || null,
+                                    vlan: form.vlan || null,
+                                    comment: form.comment || null,
+                                    ipAddress: form.ipAddress || null,
+                                  },
+                                })
+                              }
+                              disabled={saveDisabled}
+                            >
+                              {deviceSaving ? 'Saving…' : 'Save'}
+                            </SoftButton>
+                          </div>
+                          <label className="stack-sm porthub-field-comment">
                             <span className="field-label">Comment</span>
                             <input
                               className="input"
@@ -430,33 +452,6 @@ export function PortHubView() {
                               placeholder="Notes"
                             />
                           </label>
-                        </div>
-                        <div className="porthub-form-actions">
-                          <SoftButton
-                            variant="ghost"
-                            onClick={() => clearPortForm(device.id)}
-                            disabled={saveDisabled}
-                          >
-                            Clear
-                          </SoftButton>
-                          <SoftButton
-                            onClick={() =>
-                              updatePort.mutateAsync({
-                                deviceId: device.id,
-                                cabinetId: device.cabinetId,
-                                portNumber: portSelected!,
-                                payload: {
-                                  patchPanel: form.patchPanel || null,
-                                  vlan: form.vlan || null,
-                                  comment: form.comment || null,
-                                  ipAddress: form.ipAddress || null,
-                                },
-                              })
-                            }
-                            disabled={saveDisabled}
-                          >
-                            {deviceSaving ? 'Saving…' : 'Save'}
-                          </SoftButton>
                         </div>
                       </div>
                     </div>
