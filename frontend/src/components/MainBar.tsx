@@ -182,6 +182,14 @@ export function MainBar() {
             </div>
           )}
 
+          {view === 'porthub' && (
+            <div className="ipdash-toolbar justify-end">
+              <div className="ipdash-toolbar-right">
+                <VersionIndicator compact />
+              </div>
+            </div>
+          )}
+
           {view === 'cabinet' && (
             <div className="mainbar-action-bar">
               <div className="mainbar-action-controls">
