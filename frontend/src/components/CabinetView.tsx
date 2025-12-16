@@ -69,6 +69,7 @@ function RackDevice({
   onCancelDelete,
   groupCount,
   groupIndex,
+  reorderMode,
 }: {
   device: Device;
   onDelete: (device: Device) => void;
@@ -79,9 +80,11 @@ function RackDevice({
   onCancelDelete: () => void;
   groupCount: number;
   groupIndex: number;
+  reorderMode: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: deviceIdKey(device.id),
+    disabled: !reorderMode,
   });
   const { setNodeRef: setDropRef, isOver } = useDroppable({
     id: `device-drop-${device.id}`,
@@ -140,35 +143,29 @@ function RackDevice({
               </button>
             </>
           ) : (
-              <>
-                <button
-                  type="button"
-                  className={`device-comment ${commentActive ? 'active' : ''}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onComment(device);
-                  }}
-                  title={commentActive ? 'Edit comment' : 'Add comment'}
-                >
-                  💬
-                </button>
-                <button
-                  type="button"
-                  className="device-drag-btn"
-                  {...listeners}
-                  {...attributes}
-                  onClick={(e) => e.stopPropagation()}
-                  title="Reorder device"
-                >
-                  ↕
-                </button>
-                <button
-                  type="button"
-                  className="device-comment"
-                  onClick={(e) => {
+            <>
+              <button
+                type="button"
+                className={`device-comment ${commentActive ? 'active' : ''}`}
+                onClick={(e) => {
+                  if (reorderMode) return;
+                  e.stopPropagation();
+                  onComment(device);
+                }}
+                disabled={reorderMode}
+                title={commentActive ? 'Edit comment' : 'Add comment'}
+              >
+                💬
+              </button>
+              <button
+                type="button"
+                className="device-comment"
+                onClick={(e) => {
+                  if (reorderMode) return;
                   e.stopPropagation();
                   onEdit(device);
                 }}
+                disabled={reorderMode}
               >
                 Edit
               </button>
@@ -176,9 +173,11 @@ function RackDevice({
                 type="button"
                 className="device-remove"
                 onClick={(e) => {
+                  if (reorderMode) return;
                   e.stopPropagation();
                   onRequestDelete(device);
                 }}
+                disabled={reorderMode}
                 title="Remove device"
               >
                 ✕
@@ -221,6 +220,11 @@ export function CabinetView() {
   const [confirmCabinetRemoval, setConfirmCabinetRemoval] = useState(false);
   const [activeDeviceId, setActiveDeviceId] = useState<number | null>(null);
   const [activeDeviceMeta, setActiveDeviceMeta] = useState<{ count: number; index: number } | null>(null);
+  const [isNarrow, setIsNarrow] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return window.matchMedia('(max-width: 767px)').matches;
+  });
+  const [reorderMode, setReorderMode] = useState(false);
   const occupancy = useMemo(() => {
     if (!cabinet) return [];
     const rows = Array.from({ length: cabinet.sizeU }, () => ({ occupied: false, deviceId: null as number | null }));
@@ -275,6 +279,21 @@ export function CabinetView() {
     setConfirmDeviceId(null);
     setConfirmCabinetRemoval(false);
   }, [cabinet?.id]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const media = window.matchMedia('(max-width: 767px)');
+    const handleChange = (event: MediaQueryListEvent | MediaQueryList) => {
+      setIsNarrow(event.matches);
+    };
+    handleChange(media);
+    if (typeof media.addEventListener === 'function') {
+      media.addEventListener('change', handleChange);
+      return () => media.removeEventListener('change', handleChange);
+    }
+    media.addListener(handleChange);
+    return () => media.removeListener(handleChange);
+  }, []);
 
   const handleComment = (device: Device) => {
     setConfirmDeviceId(null);
@@ -389,6 +408,94 @@ export function CabinetView() {
   const usedUnits = occupancy.reduce((sum, slot) => (slot.occupied ? sum + 1 : sum), 0);
   const freeUnits = Math.max(cabinet.sizeU - usedUnits, 0);
 
+  const rackGrid = (
+    <div className="rack-canvas">
+      <DndContext
+        sensors={sensors}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        onDragCancel={() => {
+          setActiveDeviceId(null);
+          setActiveDeviceMeta(null);
+        }}
+      >
+        <div
+          className="rack-grid"
+          style={{ gridTemplateRows: `repeat(${cabinet.sizeU}, minmax(32px, 1fr))` }}
+        >
+          {Array.from({ length: cabinet.sizeU }, (_, idx) => (
+            <div key={`row-${idx + 1}`} className="rack-row-wrapper">
+              <RackLabel index={idx + 1} />
+              <RackSlot index={idx + 1} occupied={occupancy[idx]?.occupied ?? false} />
+            </div>
+          ))}
+          {devices.map((device) => {
+            const meta = groupMeta.get(device.id) ?? { count: 1, index: 0 };
+            return (
+              <RackDevice
+                key={device.id}
+                device={device}
+                onDelete={handleDelete}
+                onComment={handleComment}
+                onEdit={handleDeviceEdit}
+                confirmDelete={confirmDeviceId === device.id}
+                onRequestDelete={requestDeviceRemoval}
+                onCancelDelete={() => setConfirmDeviceId(null)}
+                groupCount={meta.count}
+                groupIndex={meta.index}
+                reorderMode={reorderMode}
+              />
+            );
+          })}
+        </div>
+        <DragOverlay dropAnimation={null}>
+          {activeDeviceId
+            ? (() => {
+                const device = devices.find((d) => d.id === activeDeviceId);
+                if (!device) return null;
+                return (
+                  <div
+                    className="rack-device dragging"
+                    style={{
+                      width: activeDeviceMeta ? `calc(${100 / activeDeviceMeta.count}% - 4px)` : '220px',
+                      height: `${device.heightU * 36}px`,
+                    }}
+                  >
+                    <div className="rack-device-header">
+                      <span className="device-type">{device.type}</span>
+                    </div>
+                    {device.model && <p className="device-model">{device.model}</p>}
+                  </div>
+                );
+              })()
+            : null}
+        </DragOverlay>
+      </DndContext>
+    </div>
+  );
+
+  const rackList = (
+    <div className="rack-list">
+      {Array.from({ length: cabinet.sizeU }, (_, idx) => idx + 1).map((unit) => {
+        const list = groupedByPosition.get(unit) ?? [];
+        return (
+          <RackListRow
+            key={`rack-list-${unit}`}
+            unit={unit}
+            devices={list}
+            confirmDeviceId={confirmDeviceId}
+            onComment={handleComment}
+            onEdit={handleDeviceEdit}
+            onRequestDelete={requestDeviceRemoval}
+            onCancelDelete={() => setConfirmDeviceId(null)}
+            onDelete={handleDelete}
+            reorderMode={reorderMode}
+          />
+        );
+      })}
+    </div>
+  );
+
   return (
     <div className="stack gap-4">
       <Surface className="stack gap-2">
@@ -444,70 +551,174 @@ export function CabinetView() {
           >
             Add device
           </SoftButton>
-        </div>
-        <div className="rack-canvas">
-          <DndContext
-            sensors={sensors}
-            onDragStart={handleDragStart}
-            onDragEnd={handleDragEnd}
-            onDragCancel={() => {
-              setActiveDeviceId(null);
-              setActiveDeviceMeta(null);
+          <SoftButton
+            variant={reorderMode ? 'danger' : 'ghost'}
+            onClick={() => {
+              const next = !reorderMode;
+              setReorderMode(next);
+              if (!next) {
+                setConfirmDeviceId(null);
+              }
             }}
+            disabled={isNarrow}
+            title={isNarrow ? 'Reorder available on larger screens' : undefined}
           >
-            <div
-              className="rack-grid"
-              style={{ gridTemplateRows: `repeat(${cabinet.sizeU}, minmax(32px, 1fr))` }}
-            >
-              {Array.from({ length: cabinet.sizeU }, (_, idx) => (
-                <div key={`row-${idx + 1}`} className="rack-row-wrapper">
-                  <RackLabel index={idx + 1} />
-                  <RackSlot index={idx + 1} occupied={occupancy[idx]?.occupied ?? false} />
-                </div>
-              ))}
-              {devices.map((device) => {
-                const meta = groupMeta.get(device.id) ?? { count: 1, index: 0 };
-                return (
-                  <RackDevice
-                    key={device.id}
-                    device={device}
-                    onDelete={handleDelete}
-                    onComment={handleComment}
-                    onEdit={handleDeviceEdit}
-                    confirmDelete={confirmDeviceId === device.id}
-                    onRequestDelete={requestDeviceRemoval}
-                    onCancelDelete={() => setConfirmDeviceId(null)}
-                    groupCount={meta.count}
-                    groupIndex={meta.index}
-                  />
-                );
-              })}
-            </div>
-            <DragOverlay dropAnimation={null}>
-              {activeDeviceId
-                ? (() => {
-                    const device = devices.find((d) => d.id === activeDeviceId);
-                    if (!device) return null;
-                    return (
-                      <div
-                        className="rack-device dragging"
-                        style={{
-                          width: activeDeviceMeta ? `calc(${100 / activeDeviceMeta.count}% - 4px)` : '220px',
-                          height: `${device.heightU * 36}px`,
-                        }}
-                      >
-                        <div className="rack-device-header">
-                          <span className="device-type">{device.type}</span>
-                        </div>
-                        {device.model && <p className="device-model">{device.model}</p>}
-                      </div>
-                    );
-                  })()
-                : null}
-            </DragOverlay>
-          </DndContext>
+            {reorderMode ? 'Exit mode' : 'Device reorder'}
+          </SoftButton>
         </div>
+        {isNarrow ? rackList : rackGrid}
       </Surface>
+    </div>
+  );
+}
+
+function RackListRow({
+  unit,
+  devices,
+  confirmDeviceId,
+  onComment,
+  onEdit,
+  onRequestDelete,
+  onCancelDelete,
+  onDelete,
+  reorderMode,
+}: {
+  unit: number;
+  devices: Device[];
+  confirmDeviceId: number | null;
+  onComment: (device: Device) => void;
+  onEdit: (device: Device) => void;
+  onRequestDelete: (device: Device) => void;
+  onCancelDelete: () => void;
+  onDelete: (device: Device) => void;
+  reorderMode: boolean;
+}) {
+  return (
+    <div className="rack-list-row">
+      <div className="rack-list-u">{unit}</div>
+      <div className="rack-list-devices">
+        {!devices.length ? (
+          <div className="rack-list-empty">Empty</div>
+        ) : (
+          devices.map((device) => (
+            <RackListDeviceRow
+              key={device.id}
+              device={device}
+              confirmDelete={confirmDeviceId === device.id}
+              onComment={onComment}
+              onEdit={onEdit}
+              onRequestDelete={onRequestDelete}
+              onCancelDelete={onCancelDelete}
+              onDelete={onDelete}
+              reorderMode={reorderMode}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RackListDeviceRow({
+  device,
+  confirmDelete,
+  onComment,
+  onEdit,
+  onRequestDelete,
+  onCancelDelete,
+  onDelete,
+  reorderMode,
+}: {
+  device: Device;
+  confirmDelete: boolean;
+  onComment: (device: Device) => void;
+  onEdit: (device: Device) => void;
+  onRequestDelete: (device: Device) => void;
+  onCancelDelete: () => void;
+  onDelete: (device: Device) => void;
+  reorderMode: boolean;
+}) {
+  const commentActive = Boolean(device.comment && device.comment.length);
+  return (
+    <div className="rack-list-device">
+      <div className="rack-list-device-main">
+        <div className="rack-list-device-title">
+          {device.type}
+          {device.model ? ` · ${device.model}` : ''}
+        </div>
+        <div className="rack-list-device-meta">
+          {device.heightU}U
+          {commentActive ? ' · Notes' : ''}
+        </div>
+      </div>
+      <div className="rack-list-device-actions">
+        {confirmDelete ? (
+          <>
+            <button
+              type="button"
+              className="rack-list-device-btn rack-list-device-btn--ghost"
+              onClick={(e) => {
+                e.stopPropagation();
+                onCancelDelete();
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="rack-list-device-btn rack-list-device-btn--danger"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(device);
+              }}
+            >
+              Confirm
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              className={`rack-list-device-btn ${commentActive ? 'active' : ''}`}
+              onClick={(e) => {
+                if (reorderMode) return;
+                e.stopPropagation();
+                onComment(device);
+              }}
+              disabled={reorderMode}
+              aria-label={commentActive ? 'Edit comment' : 'Add comment'}
+            >
+              💬
+            </button>
+            <button
+              type="button"
+              className="rack-list-device-btn"
+              onClick={(e) => {
+                if (reorderMode) return;
+                e.stopPropagation();
+                onEdit(device);
+              }}
+              disabled={reorderMode}
+              aria-label="Edit device"
+            >
+              ✎
+            </button>
+            <button
+              type="button"
+              className="rack-list-device-btn rack-list-device-btn--danger"
+              onClick={(e) => {
+                if (reorderMode) return;
+                e.stopPropagation();
+                onRequestDelete(device);
+              }}
+              disabled={reorderMode}
+              aria-label="Remove device"
+            >
+              ✕
+            </button>
+          </>
+        )}
+      </div>
     </div>
   );
 }
