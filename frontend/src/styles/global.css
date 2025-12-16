@@ -1640,20 +1640,20 @@ html {
   border: 1px solid color-mix(in srgb, var(--accent) 65%, transparent);
   background: color-mix(in srgb, var(--accent) 14%, transparent);
   color: var(--accent-strong, var(--accent));
-  font-size: 0.72rem;
+  font-size: 0.78rem;
   font-weight: 600;
   line-height: 1;
   border-radius: 999px;
-  padding: 0.2rem 0.6rem;
+  padding: 0.22rem 0.9rem;
   cursor: pointer;
   transition: background var(--transition), border-color var(--transition), color var(--transition);
 }
 
 .device-link-mode.active {
-  background: color-mix(in srgb, var(--warning) 85%, transparent);
-  color: var(--text-on-accent);
-  border-color: color-mix(in srgb, var(--warning) 90%, transparent);
-  box-shadow: 0 0 0 0 rgba(255, 149, 0, 0.4);
+  background: color-mix(in srgb, var(--warning) 30%, transparent);
+  color: color-mix(in srgb, var(--warning) 95%, black);
+  border-color: color-mix(in srgb, var(--warning) 60%, transparent);
+  box-shadow: 0 0 0 0 rgba(255, 149, 0, 0.35);
   animation: savePulse 1.4s ease-in-out infinite;
 }
 
