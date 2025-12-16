@@ -105,13 +105,18 @@ function RackDevice({
     opacity: isDragging ? 0 : 1,
     pointerEvents: isDragging ? 'none' : undefined,
   };
+  const dragProps = reorderMode ? listeners : {};
+  const dragAttributes = reorderMode ? attributes : {};
+
   const commentActive = Boolean(device.comment && device.comment.length);
   return (
     <div ref={setDropRef} style={shellStyle} className={`rack-device-shell ${isOver ? 'dropping' : ''}`}>
       <div
         ref={setNodeRef}
         style={cardStyle}
-        className={`rack-device ${isDragging ? 'dragging' : ''}`}
+        className={`rack-device ${isDragging ? 'dragging' : ''} ${reorderMode ? 'reorder-mode' : ''}`}
+        {...dragProps}
+        {...dragAttributes}
       >
         <div className="rack-device-header">
           <span className="device-info">
@@ -121,67 +126,72 @@ function RackDevice({
           <div className="device-actions">
             {confirmDelete ? (
               <>
-              <button
-                type="button"
-                className="device-confirm-remove"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDelete(device);
-                }}
-              >
-                Confirm
-              </button>
-              <button
-                type="button"
-                className="device-comment"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onCancelDelete();
-                }}
-              >
-                Cancel
-              </button>
-            </>
-          ) : (
-            <>
-              <button
-                type="button"
-                className={`device-comment ${commentActive ? 'active' : ''}`}
-                onClick={(e) => {
-                  if (reorderMode) return;
-                  e.stopPropagation();
-                  onComment(device);
-                }}
-                disabled={reorderMode}
-                title={commentActive ? 'Edit comment' : 'Add comment'}
-              >
-                💬
-              </button>
-              <button
-                type="button"
-                className="device-comment"
-                onClick={(e) => {
-                  if (reorderMode) return;
-                  e.stopPropagation();
-                  onEdit(device);
-                }}
-                disabled={reorderMode}
-              >
-                Edit
-              </button>
-              <button
-                type="button"
-                className="device-remove"
-                onClick={(e) => {
-                  if (reorderMode) return;
-                  e.stopPropagation();
-                  onRequestDelete(device);
-                }}
-                disabled={reorderMode}
-                title="Remove device"
-              >
-                ✕
-              </button>
+                <button
+                  type="button"
+                  className="device-confirm-remove"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete(device);
+                  }}
+                >
+                  Confirm
+                </button>
+                <button
+                  type="button"
+                  className="device-cancel-remove"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onCancelDelete();
+                  }}
+                >
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className={`device-comment ${commentActive ? 'active' : ''}`}
+                  onClick={(e) => {
+                    if (reorderMode) return;
+                    e.stopPropagation();
+                    onComment(device);
+                  }}
+                  disabled={reorderMode}
+                  aria-label={commentActive ? 'Edit comment' : 'Add comment'}
+                  title={commentActive ? 'Edit comment' : 'Add comment'}
+                >
+                  💬
+                </button>
+                <button
+                  type="button"
+                  className="device-comment device-edit"
+                  onClick={(e) => {
+                    if (reorderMode) return;
+                    e.stopPropagation();
+                    onEdit(device);
+                  }}
+                  disabled={reorderMode}
+                  aria-label="Edit device"
+                  title="Edit device"
+                >
+                  ✎
+                </button>
+                <button
+                  type="button"
+                  className="device-remove"
+                  onClick={(e) => {
+                    if (reorderMode) return;
+                    e.stopPropagation();
+                    (e.currentTarget as HTMLButtonElement).blur();
+                    onRequestDelete(device);
+                  }}
+                  disabled={reorderMode}
+                  title="Remove device"
+                  aria-label="Remove device"
+                >
+                  ✕
+                </button>
               </>
             )}
           </div>
@@ -220,10 +230,6 @@ export function CabinetView() {
   const [confirmCabinetRemoval, setConfirmCabinetRemoval] = useState(false);
   const [activeDeviceId, setActiveDeviceId] = useState<number | null>(null);
   const [activeDeviceMeta, setActiveDeviceMeta] = useState<{ count: number; index: number } | null>(null);
-  const [isNarrow, setIsNarrow] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
-    return window.matchMedia('(max-width: 767px)').matches;
-  });
   const [reorderMode, setReorderMode] = useState(false);
   const occupancy = useMemo(() => {
     if (!cabinet) return [];
@@ -279,21 +285,6 @@ export function CabinetView() {
     setConfirmDeviceId(null);
     setConfirmCabinetRemoval(false);
   }, [cabinet?.id]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return undefined;
-    const media = window.matchMedia('(max-width: 767px)');
-    const handleChange = (event: MediaQueryListEvent | MediaQueryList) => {
-      setIsNarrow(event.matches);
-    };
-    handleChange(media);
-    if (typeof media.addEventListener === 'function') {
-      media.addEventListener('change', handleChange);
-      return () => media.removeEventListener('change', handleChange);
-    }
-    media.addListener(handleChange);
-    return () => media.removeListener(handleChange);
-  }, []);
 
   const handleComment = (device: Device) => {
     setConfirmDeviceId(null);
@@ -474,28 +465,6 @@ export function CabinetView() {
     </div>
   );
 
-  const rackList = (
-    <div className="rack-list">
-      {Array.from({ length: cabinet.sizeU }, (_, idx) => idx + 1).map((unit) => {
-        const list = groupedByPosition.get(unit) ?? [];
-        return (
-          <RackListRow
-            key={`rack-list-${unit}`}
-            unit={unit}
-            devices={list}
-            confirmDeviceId={confirmDeviceId}
-            onComment={handleComment}
-            onEdit={handleDeviceEdit}
-            onRequestDelete={requestDeviceRemoval}
-            onCancelDelete={() => setConfirmDeviceId(null)}
-            onDelete={handleDelete}
-            reorderMode={reorderMode}
-          />
-        );
-      })}
-    </div>
-  );
-
   return (
     <div className="stack gap-4">
       <Surface className="stack gap-2">
@@ -560,165 +529,12 @@ export function CabinetView() {
                 setConfirmDeviceId(null);
               }
             }}
-            disabled={isNarrow}
-            title={isNarrow ? 'Reorder available on larger screens' : undefined}
           >
             {reorderMode ? 'Exit mode' : 'Device reorder'}
           </SoftButton>
         </div>
-        {isNarrow ? rackList : rackGrid}
+        {rackGrid}
       </Surface>
-    </div>
-  );
-}
-
-function RackListRow({
-  unit,
-  devices,
-  confirmDeviceId,
-  onComment,
-  onEdit,
-  onRequestDelete,
-  onCancelDelete,
-  onDelete,
-  reorderMode,
-}: {
-  unit: number;
-  devices: Device[];
-  confirmDeviceId: number | null;
-  onComment: (device: Device) => void;
-  onEdit: (device: Device) => void;
-  onRequestDelete: (device: Device) => void;
-  onCancelDelete: () => void;
-  onDelete: (device: Device) => void;
-  reorderMode: boolean;
-}) {
-  return (
-    <div className="rack-list-row">
-      <div className="rack-list-u">{unit}</div>
-      <div className="rack-list-devices">
-        {!devices.length ? (
-          <div className="rack-list-empty">Empty</div>
-        ) : (
-          devices.map((device) => (
-            <RackListDeviceRow
-              key={device.id}
-              device={device}
-              confirmDelete={confirmDeviceId === device.id}
-              onComment={onComment}
-              onEdit={onEdit}
-              onRequestDelete={onRequestDelete}
-              onCancelDelete={onCancelDelete}
-              onDelete={onDelete}
-              reorderMode={reorderMode}
-            />
-          ))
-        )}
-      </div>
-    </div>
-  );
-}
-
-function RackListDeviceRow({
-  device,
-  confirmDelete,
-  onComment,
-  onEdit,
-  onRequestDelete,
-  onCancelDelete,
-  onDelete,
-  reorderMode,
-}: {
-  device: Device;
-  confirmDelete: boolean;
-  onComment: (device: Device) => void;
-  onEdit: (device: Device) => void;
-  onRequestDelete: (device: Device) => void;
-  onCancelDelete: () => void;
-  onDelete: (device: Device) => void;
-  reorderMode: boolean;
-}) {
-  const commentActive = Boolean(device.comment && device.comment.length);
-  return (
-    <div className="rack-list-device">
-      <div className="rack-list-device-main">
-        <div className="rack-list-device-title">
-          {device.type}
-          {device.model ? ` · ${device.model}` : ''}
-        </div>
-        <div className="rack-list-device-meta">
-          {device.heightU}U
-          {commentActive ? ' · Notes' : ''}
-        </div>
-      </div>
-      <div className="rack-list-device-actions">
-        {confirmDelete ? (
-          <>
-            <button
-              type="button"
-              className="rack-list-device-btn rack-list-device-btn--ghost"
-              onClick={(e) => {
-                e.stopPropagation();
-                onCancelDelete();
-              }}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              className="rack-list-device-btn rack-list-device-btn--danger"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete(device);
-              }}
-            >
-              Confirm
-            </button>
-          </>
-        ) : (
-          <>
-            <button
-              type="button"
-              className={`rack-list-device-btn ${commentActive ? 'active' : ''}`}
-              onClick={(e) => {
-                if (reorderMode) return;
-                e.stopPropagation();
-                onComment(device);
-              }}
-              disabled={reorderMode}
-              aria-label={commentActive ? 'Edit comment' : 'Add comment'}
-            >
-              💬
-            </button>
-            <button
-              type="button"
-              className="rack-list-device-btn"
-              onClick={(e) => {
-                if (reorderMode) return;
-                e.stopPropagation();
-                onEdit(device);
-              }}
-              disabled={reorderMode}
-              aria-label="Edit device"
-            >
-              ✎
-            </button>
-            <button
-              type="button"
-              className="rack-list-device-btn rack-list-device-btn--danger"
-              onClick={(e) => {
-                if (reorderMode) return;
-                e.stopPropagation();
-                onRequestDelete(device);
-              }}
-              disabled={reorderMode}
-              aria-label="Remove device"
-            >
-              ✕
-            </button>
-          </>
-        )}
-      </div>
     </div>
   );
 }
