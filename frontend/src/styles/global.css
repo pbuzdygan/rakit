@@ -1144,6 +1144,75 @@ html {
   gap: 0;
 }
 
+.rack-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.rack-list-row {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  gap: 0.45rem;
+  align-items: stretch;
+  padding: 0.1rem 0;
+  border-bottom: 1px solid var(--soft-border);
+}
+
+.rack-list-row:last-child {
+  border-bottom: none;
+}
+
+.rack-list-row.dropping {
+  border-radius: 0.9rem;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.rack-list-u {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  font-weight: 600;
+  color: var(--text-secondary);
+  padding-top: 0.5rem;
+}
+
+.rack-list-devices {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.rack-list-empty {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  border: 1px dashed var(--soft-border);
+  border-radius: 0.75rem;
+  padding: 0.4rem 0.65rem;
+  background: color-mix(in srgb, var(--panel) 94%, transparent);
+}
+
+.rack-list-span {
+  border-radius: 0.75rem;
+  border: 1px dashed color-mix(in srgb, var(--accent) 35%, transparent);
+  padding: 0.45rem 0.7rem;
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.rack-list-span-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.rack-list-span-meta {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
 @media (max-width: 768px) {
   .rack-grid {
     grid-template-columns: 40px minmax(0, 1fr);
@@ -1235,6 +1304,11 @@ html {
   height: 100%;
 }
 
+.rack-device--list {
+  box-shadow: var(--shadow-soft);
+  border-color: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
 .rack-device.dragging {
   opacity: 0.85;
   box-shadow: var(--shadow-float);
@@ -1256,6 +1330,10 @@ html {
   gap: 0.5rem;
 }
 
+.rack-device--list .rack-device-header {
+  align-items: flex-start;
+}
+
 .device-info {
   display: inline-flex;
   align-items: center;
@@ -1267,6 +1345,28 @@ html {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.device-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.device-meta-range {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.device-meta-size {
+  padding: 0 0.65rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 0.72rem;
 }
 
 .device-actions {

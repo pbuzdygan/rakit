@@ -15,6 +15,7 @@ import { Api } from '../api';
 import { Surface } from './Surface';
 import { SoftButton } from './SoftButton';
 import { useAppStore } from '../store';
+import { useMediaQuery } from '../hooks/useMediaQuery';
 
 type Cabinet = {
   id: number;
@@ -70,6 +71,7 @@ function RackDevice({
   groupCount,
   groupIndex,
   reorderMode,
+  layout = 'grid',
 }: {
   device: Device;
   onDelete: (device: Device) => void;
@@ -81,6 +83,7 @@ function RackDevice({
   groupCount: number;
   groupIndex: number;
   reorderMode: boolean;
+  layout?: 'grid' | 'list';
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: deviceIdKey(device.id),
@@ -90,31 +93,44 @@ function RackDevice({
     id: `device-drop-${device.id}`,
     data: { type: 'device', position: device.position, deviceId: device.id },
   });
-  const widthPercent = 100 / groupCount;
+  const isListLayout = layout === 'list';
+  const widthPercent = isListLayout ? 100 : 100 / groupCount;
   const baseLeft =
-    groupCount > 1 ? `calc(${groupIndex} * (100% / ${groupCount}))` : undefined;
-  const shellStyle: React.CSSProperties = {
-    gridRow: `${device.position} / span ${device.heightU}`,
-    gridColumn: '2 / span 1',
-    width: `calc(${widthPercent}% - 4px)`,
-    position: 'relative',
-    left: baseLeft,
-  };
+    !isListLayout && groupCount > 1 ? `calc(${groupIndex} * (100% / ${groupCount}))` : undefined;
+  const shellStyle: React.CSSProperties = isListLayout
+    ? {
+        width: '100%',
+        position: 'relative',
+      }
+    : {
+        gridRow: `${device.position} / span ${device.heightU}`,
+        gridColumn: '2 / span 1',
+        width: `calc(${widthPercent}% - 4px)`,
+        position: 'relative',
+        left: baseLeft,
+      };
   const cardStyle: React.CSSProperties = {
     transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
     opacity: isDragging ? 0 : 1,
     pointerEvents: isDragging ? 'none' : undefined,
+    minHeight: isListLayout ? `${Math.max(device.heightU, 1) * 40}px` : undefined,
   };
   const dragProps = reorderMode ? listeners : {};
   const dragAttributes = reorderMode ? attributes : {};
 
   const commentActive = Boolean(device.comment && device.comment.length);
+  const unitRange =
+    device.heightU > 1
+      ? `U${device.position} - U${device.position + device.heightU - 1}`
+      : `U${device.position}`;
   return (
     <div ref={setDropRef} style={shellStyle} className={`rack-device-shell ${isOver ? 'dropping' : ''}`}>
       <div
         ref={setNodeRef}
         style={cardStyle}
-        className={`rack-device ${isDragging ? 'dragging' : ''} ${reorderMode ? 'reorder-mode' : ''}`}
+        className={`rack-device ${isDragging ? 'dragging' : ''} ${reorderMode ? 'reorder-mode' : ''} ${
+          isListLayout ? 'rack-device--list' : ''
+        }`}
         {...dragProps}
         {...dragAttributes}
       >
@@ -196,6 +212,12 @@ function RackDevice({
             )}
           </div>
         </div>
+        {isListLayout && (
+          <div className="device-meta">
+            <span className="device-meta-range">{unitRange}</span>
+            <span className="device-meta-size">{device.heightU}U</span>
+          </div>
+        )}
         {/* comment text intentionally hidden; icon state indicates presence */}
       </div>
     </div>
@@ -231,6 +253,7 @@ export function CabinetView() {
   const [activeDeviceId, setActiveDeviceId] = useState<number | null>(null);
   const [activeDeviceMeta, setActiveDeviceMeta] = useState<{ count: number; index: number } | null>(null);
   const [reorderMode, setReorderMode] = useState(false);
+  const isCompactLayout = useMediaQuery('(max-width: 880px)');
   const occupancy = useMemo(() => {
     if (!cabinet) return [];
     const rows = Array.from({ length: cabinet.sizeU }, () => ({ occupied: false, deviceId: null as number | null }));
@@ -264,6 +287,25 @@ export function CabinetView() {
     });
     return meta;
   }, [groupedByPosition]);
+
+  const deviceById = useMemo(() => {
+    const map = new Map<number, Device>();
+    devices.forEach((device) => map.set(device.id, device));
+    return map;
+  }, [devices]);
+
+  const listRows = useMemo(() => {
+    if (!cabinet) return [];
+    return Array.from({ length: cabinet.sizeU }, (_, idx) => {
+      const unit = idx + 1;
+      const coveringId = occupancy[idx]?.deviceId ?? null;
+      return {
+        unit,
+        devices: groupedByPosition.get(unit) ?? [],
+        coveringDevice: coveringId ? deviceById.get(coveringId) ?? null : null,
+      };
+    });
+  }, [cabinet, groupedByPosition, occupancy, deviceById]);
 
   const isSlotAvailable = (slot: number, height: number, deviceId?: number) => {
     if (!cabinet) return false;
@@ -399,7 +441,7 @@ export function CabinetView() {
   const usedUnits = occupancy.reduce((sum, slot) => (slot.occupied ? sum + 1 : sum), 0);
   const freeUnits = Math.max(cabinet.sizeU - usedUnits, 0);
 
-  const rackGrid = (
+  const rackContent = (
     <div className="rack-canvas">
       <DndContext
         sensors={sensors}
@@ -410,35 +452,57 @@ export function CabinetView() {
           setActiveDeviceMeta(null);
         }}
       >
-        <div
-          className="rack-grid"
-          style={{ gridTemplateRows: `repeat(${cabinet.sizeU}, minmax(32px, 1fr))` }}
-        >
-          {Array.from({ length: cabinet.sizeU }, (_, idx) => (
-            <div key={`row-${idx + 1}`} className="rack-row-wrapper">
-              <RackLabel index={idx + 1} />
-              <RackSlot index={idx + 1} occupied={occupancy[idx]?.occupied ?? false} />
-            </div>
-          ))}
-          {devices.map((device) => {
-            const meta = groupMeta.get(device.id) ?? { count: 1, index: 0 };
-            return (
-              <RackDevice
-                key={device.id}
-                device={device}
-                onDelete={handleDelete}
+        {isCompactLayout ? (
+          <div className="rack-list">
+            {listRows.map((row) => (
+              <RackListRow
+                key={`rack-list-${row.unit}`}
+                unit={row.unit}
+                devices={row.devices}
+                continuationDevice={
+                  row.devices.length === 0 ? row.coveringDevice ?? null : null
+                }
+                confirmDeviceId={confirmDeviceId}
                 onComment={handleComment}
                 onEdit={handleDeviceEdit}
-                confirmDelete={confirmDeviceId === device.id}
                 onRequestDelete={requestDeviceRemoval}
                 onCancelDelete={() => setConfirmDeviceId(null)}
-                groupCount={meta.count}
-                groupIndex={meta.index}
+                onDelete={handleDelete}
                 reorderMode={reorderMode}
               />
-            );
-          })}
-        </div>
+            ))}
+          </div>
+        ) : (
+          <div
+            className="rack-grid"
+            style={{ gridTemplateRows: `repeat(${cabinet.sizeU}, minmax(32px, 1fr))` }}
+          >
+            {Array.from({ length: cabinet.sizeU }, (_, idx) => (
+              <div key={`row-${idx + 1}`} className="rack-row-wrapper">
+                <RackLabel index={idx + 1} />
+                <RackSlot index={idx + 1} occupied={occupancy[idx]?.occupied ?? false} />
+              </div>
+            ))}
+            {devices.map((device) => {
+              const meta = groupMeta.get(device.id) ?? { count: 1, index: 0 };
+              return (
+                <RackDevice
+                  key={device.id}
+                  device={device}
+                  onDelete={handleDelete}
+                  onComment={handleComment}
+                  onEdit={handleDeviceEdit}
+                  confirmDelete={confirmDeviceId === device.id}
+                  onRequestDelete={requestDeviceRemoval}
+                  onCancelDelete={() => setConfirmDeviceId(null)}
+                  groupCount={meta.count}
+                  groupIndex={meta.index}
+                  reorderMode={reorderMode}
+                />
+              );
+            })}
+          </div>
+        )}
         <DragOverlay dropAnimation={null}>
           {activeDeviceId
             ? (() => {
@@ -448,7 +512,11 @@ export function CabinetView() {
                   <div
                     className="rack-device dragging"
                     style={{
-                      width: activeDeviceMeta ? `calc(${100 / activeDeviceMeta.count}% - 4px)` : '220px',
+                      width: isCompactLayout
+                        ? 'min(320px, 90vw)'
+                        : activeDeviceMeta
+                        ? `calc(${100 / activeDeviceMeta.count}% - 4px)`
+                        : '220px',
                       height: `${device.heightU * 36}px`,
                     }}
                   >
@@ -533,8 +601,81 @@ export function CabinetView() {
             {reorderMode ? 'Exit mode' : 'Device reorder'}
           </SoftButton>
         </div>
-        {rackGrid}
+        {rackContent}
       </Surface>
+    </div>
+  );
+}
+
+type RackListRowProps = {
+  unit: number;
+  devices: Device[];
+  continuationDevice: Device | null;
+  confirmDeviceId: number | null;
+  onComment: (device: Device) => void;
+  onEdit: (device: Device) => void;
+  onRequestDelete: (device: Device) => void;
+  onCancelDelete: () => void;
+  onDelete: (device: Device) => void;
+  reorderMode: boolean;
+};
+
+function RackListRow({
+  unit,
+  devices,
+  continuationDevice,
+  confirmDeviceId,
+  onComment,
+  onEdit,
+  onRequestDelete,
+  onCancelDelete,
+  onDelete,
+  reorderMode,
+}: RackListRowProps) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: slotId(unit),
+    data: { type: 'slot', position: unit },
+  });
+  const showContinuation = !devices.length && Boolean(continuationDevice);
+  return (
+    <div ref={setNodeRef} className={`rack-list-row ${isOver ? 'dropping' : ''}`}>
+      <div className="rack-list-u">U{unit}</div>
+      <div className="rack-list-devices">
+        {devices.length
+          ? devices.map((device) => (
+              <RackDevice
+                key={device.id}
+                device={device}
+                onDelete={onDelete}
+                onComment={onComment}
+                onEdit={onEdit}
+                confirmDelete={confirmDeviceId === device.id}
+                onRequestDelete={onRequestDelete}
+                onCancelDelete={onCancelDelete}
+                groupCount={1}
+                groupIndex={0}
+                reorderMode={reorderMode}
+                layout="list"
+              />
+            ))
+          : showContinuation && continuationDevice ? (
+              <RackListContinuation device={continuationDevice} />
+            ) : (
+              <div className="rack-list-empty">Empty</div>
+            )}
+      </div>
+    </div>
+  );
+}
+
+function RackListContinuation({ device }: { device: Device }) {
+  const start = device.position;
+  const end = device.position + device.heightU - 1;
+  const rangeText = start === end ? `U${start}` : `U${start} - U${end}`;
+  return (
+    <div className="rack-list-span">
+      <span className="rack-list-span-label">Continues: {device.type}</span>
+      <span className="rack-list-span-meta">{rangeText}</span>
     </div>
   );
 }
