@@ -1,4 +1,12 @@
 import { create } from 'zustand';
+
+const DEFAULT_CHANNEL = (() => {
+  const envChannel = (import.meta as any)?.env?.VITE_APP_CHANNEL;
+  if (typeof envChannel === 'string' && envChannel.trim()) {
+    return envChannel.trim();
+  }
+  return 'main';
+})();
 function load<T>(k: string, fallback: T): T {
   try {
     const v = localStorage.getItem(k);
@@ -90,7 +98,7 @@ export const useAppStore = create<State>((set, get) => ({
   ipDashActiveProfileId: load<number | null>('ipdash-profile', null),
   appVersion: null,
   latestVersion: null,
-  releaseChannel: 'main',
+  releaseChannel: DEFAULT_CHANNEL,
   updateAvailable: false,
   modals: {
     export: false,

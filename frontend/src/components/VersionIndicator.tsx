@@ -7,6 +7,11 @@ const DEFAULT_REPO = (() => {
   const envRepo = (import.meta as any)?.env?.VITE_GITHUB_REPO;
   return typeof envRepo === 'string' && envRepo.length ? envRepo : 'buzuser/rakit_dev';
 })();
+const DEFAULT_CHANNEL = (() => {
+  const envChannel = (import.meta as any)?.env?.VITE_APP_CHANNEL;
+  if (typeof envChannel === 'string' && envChannel.trim()) return envChannel.trim();
+  return 'main';
+})();
 
 type VersionIndicatorProps = {
   compact?: boolean;
@@ -29,8 +34,10 @@ export function VersionIndicator({ compact = false }: VersionIndicatorProps) {
       try {
         const meta = await Api.meta();
         if (cancelled) return;
-        setAppVersion(meta?.version ?? null);
-        setReleaseChannel(meta?.channel ?? 'main');
+        const versionValue = meta?.version ?? null;
+        setAppVersion(versionValue);
+        const resolvedChannel = meta?.channel ?? guessChannel(versionValue) ?? DEFAULT_CHANNEL;
+        setReleaseChannel(resolvedChannel);
         if (typeof meta?.repo === 'string' && meta.repo.length) {
           setRepoSlug(meta.repo);
         }
@@ -154,4 +161,9 @@ function selectReleaseForChannel(releases: GitHubRelease[], channel: string) {
 
 function releaseVersion(release: GitHubRelease) {
   return release.tag_name ?? release.name ?? null;
+}
+
+function guessChannel(version?: string | null) {
+  if (!version) return null;
+  return /^dev/i.test(version.trim()) ? 'dev' : null;
 }
