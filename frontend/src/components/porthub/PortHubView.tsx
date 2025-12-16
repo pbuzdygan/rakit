@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient, useQueries } from '@tanstack/react-query';
 import { Api } from '../../api';
 import { Surface } from '../Surface';
@@ -36,9 +36,12 @@ export function PortHubView() {
   const [selectedDevices, setSelectedDevices] = useState<number[]>([]);
   const [selectedPorts, setSelectedPorts] = useState<Record<number, number | null>>({});
   const [portForms, setPortForms] = useState<Record<number, typeof emptyPortForm>>({});
+  const [portBaselines, setPortBaselines] = useState<Record<number, typeof emptyPortForm>>({});
   const [statusMessages, setStatusMessages] = useState<Record<number, string | null>>({});
   const [deleteConfirmationId, setDeleteConfirmationId] = useState<number | null>(null);
   const [linkMode, setLinkMode] = useState(false);
+  const [savedIndicators, setSavedIndicators] = useState<Record<number, boolean>>({});
+  const saveTimers = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
   const queryClient = useQueryClient();
   const openCommentModal = useAppStore((s) => s.openCommentModal);
   const setEditingDevice = useAppStore((s) => s.setEditingDevice);
@@ -50,13 +53,55 @@ export function PortHubView() {
   const devicesQuery = useQuery({ queryKey: ['porthub-devices'], queryFn: Api.portHub.devices });
   const devices = (devicesQuery.data?.devices ?? []) as PortAwareDevice[];
 
+  const resetSavedIndicators = () => {
+    Object.values(saveTimers.current).forEach((timer) => clearTimeout(timer));
+    saveTimers.current = {};
+    setSavedIndicators({});
+  };
+
+  const clearSavedIndicator = (deviceId: number) => {
+    if (saveTimers.current[deviceId]) {
+      clearTimeout(saveTimers.current[deviceId]);
+      delete saveTimers.current[deviceId];
+    }
+    setSavedIndicators((prev) => {
+      if (!prev[deviceId]) return prev;
+      const next = { ...prev };
+      delete next[deviceId];
+      return next;
+    });
+  };
+
+  const triggerSavedIndicator = (deviceId: number) => {
+    if (saveTimers.current[deviceId]) {
+      clearTimeout(saveTimers.current[deviceId]);
+    }
+    setSavedIndicators((prev) => ({ ...prev, [deviceId]: true }));
+    saveTimers.current[deviceId] = setTimeout(() => {
+      setSavedIndicators((prev) => {
+        const next = { ...prev };
+        delete next[deviceId];
+        return next;
+      });
+      delete saveTimers.current[deviceId];
+    }, 2000);
+  };
+
+  useEffect(() => {
+    return () => {
+      Object.values(saveTimers.current).forEach((timer) => clearTimeout(timer));
+    };
+  }, []);
+
   useEffect(() => {
     setSelectedDevices([]);
     setSelectedPorts({});
     setPortForms({});
+    setPortBaselines({});
     setStatusMessages({});
     setDeleteConfirmationId(null);
     setLinkMode(false);
+    resetSavedIndicators();
   }, [activeCabinetId]);
 
   const filteredDevices = useMemo(() => {
@@ -65,7 +110,35 @@ export function PortHubView() {
   }, [devices, activeCabinetId]);
 
   useEffect(() => {
-    setSelectedDevices((prev) => prev.filter((id) => filteredDevices.some((device) => device.id === id)));
+    const allowedIds = new Set(filteredDevices.map((device) => device.id));
+    setSelectedDevices((prev) => {
+      if (!prev.length) return prev;
+      const removed = prev.filter((id) => !allowedIds.has(id));
+      if (removed.length) {
+        setSelectedPorts((ports) => {
+          const copy = { ...ports };
+          removed.forEach((id) => delete copy[id]);
+          return copy;
+        });
+        setPortForms((forms) => {
+          const copy = { ...forms };
+          removed.forEach((id) => delete copy[id]);
+          return copy;
+        });
+        setPortBaselines((baselines) => {
+          const copy = { ...baselines };
+          removed.forEach((id) => delete copy[id]);
+          return copy;
+        });
+        setStatusMessages((messages) => {
+          const copy = { ...messages };
+          removed.forEach((id) => delete copy[id]);
+          return copy;
+        });
+        removed.forEach((id) => clearSavedIndicator(id));
+      }
+      return prev.filter((id) => allowedIds.has(id));
+    });
   }, [filteredDevices]);
 
   useEffect(() => {
@@ -93,10 +166,17 @@ export function PortHubView() {
           delete copy[deviceId];
           return copy;
         });
+        setPortBaselines((baseline) => {
+          const copy = { ...baseline };
+          delete copy[deviceId];
+          return copy;
+        });
+        clearSavedIndicator(deviceId);
         return next;
       }
       setSelectedPorts((ports) => ({ ...ports, [deviceId]: null }));
       setPortForms((forms) => ({ ...forms, [deviceId]: emptyPortForm }));
+      setPortBaselines((baseline) => ({ ...baseline, [deviceId]: emptyPortForm }));
       setStatusMessages((messages) => ({ ...messages, [deviceId]: null }));
       return [...prev, deviceId];
     });
@@ -121,29 +201,35 @@ export function PortHubView() {
   };
 
   const handleSelectPort = (deviceId: number, portNumber: number) => {
+    clearSavedIndicator(deviceId);
     setSelectedPorts((prev) => ({ ...prev, [deviceId]: portNumber }));
     const ports = getPortsForDevice(deviceId);
     const port = ports.find((entry) => entry.portNumber === portNumber);
+    const normalized = {
+      patchPanel: port?.patchPanel ?? '',
+      vlan: port?.vlan ?? '',
+      comment: port?.comment ?? '',
+      ipAddress: port?.ipAddress ?? '',
+    };
     setPortForms((prev) => ({
       ...prev,
-      [deviceId]: {
-        patchPanel: port?.patchPanel ?? '',
-        vlan: port?.vlan ?? '',
-        comment: port?.comment ?? '',
-        ipAddress: port?.ipAddress ?? '',
-      },
+      [deviceId]: normalized,
     }));
+    setPortBaselines((prev) => ({ ...prev, [deviceId]: normalized }));
     setStatusMessages((prev) => ({ ...prev, [deviceId]: null }));
   };
 
-  const handlePortFieldChange = (deviceId: number, key: keyof typeof portForm, value: string) => {
+  const handlePortFieldChange = (deviceId: number, key: keyof typeof emptyPortForm, value: string) => {
+    clearSavedIndicator(deviceId);
     setPortForms((prev) => ({
       ...prev,
       [deviceId]: { ...(prev[deviceId] ?? emptyPortForm), [key]: value },
     }));
+    setStatusMessages((prev) => ({ ...prev, [deviceId]: null }));
   };
 
   const clearPortForm = (deviceId: number) => {
+    clearSavedIndicator(deviceId);
     setPortForms((prev) => ({ ...prev, [deviceId]: emptyPortForm }));
     setStatusMessages((prev) => ({ ...prev, [deviceId]: null }));
   };
@@ -162,12 +248,22 @@ export function PortHubView() {
     }) => Api.devicePorts.update(cabinetId, deviceId, portNumber, payload),
     onSuccess: async (_, variables) => {
       if (!variables) return;
-      const { deviceId, cabinetId } = variables;
+      const { deviceId, cabinetId, payload } = variables;
       await queryClient.invalidateQueries({ queryKey: ['device-ports', cabinetId, deviceId] });
-      setStatusMessages((prev) => ({ ...prev, [deviceId]: 'Port details saved.' }));
+      const normalized = {
+        patchPanel: payload?.patchPanel ?? '',
+        vlan: payload?.vlan ?? '',
+        comment: payload?.comment ?? '',
+        ipAddress: payload?.ipAddress ?? '',
+      };
+      setPortBaselines((prev) => ({ ...prev, [deviceId]: normalized }));
+      setPortForms((prev) => ({ ...prev, [deviceId]: normalized }));
+      setStatusMessages((prev) => ({ ...prev, [deviceId]: null }));
+      triggerSavedIndicator(deviceId);
     },
     onError: (err: any, variables) => {
       if (!variables) return;
+      clearSavedIndicator(variables.deviceId);
       setStatusMessages((prev) => ({ ...prev, [variables.deviceId]: err?.message || 'Failed to save port.' }));
     },
   });
@@ -190,12 +286,18 @@ export function PortHubView() {
         delete next[vars.deviceId];
         return next;
       });
+      setPortBaselines((prev) => {
+        const next = { ...prev };
+        delete next[vars.deviceId];
+        return next;
+      });
       setStatusMessages((prev) => {
         const next = { ...prev };
         delete next[vars.deviceId];
         return next;
       });
       setDeleteConfirmationId(null);
+      clearSavedIndicator(vars.deviceId);
     },
   });
 
@@ -293,14 +395,21 @@ export function PortHubView() {
                     updatePort.isPending && updatePort.variables?.deviceId === device.id;
                   const deletingThisDevice =
                     deleteDevice.isPending && deleteDevice.variables?.deviceId === device.id;
-                  const hasFormValue =
-                    Boolean(form.patchPanel) ||
-                    Boolean(form.vlan) ||
-                    Boolean(form.ipAddress) ||
-                    Boolean(form.comment);
-                  const saveDisabled = !portSelected || deviceSaving;
+                  const baseline = portBaselines[device.id] ?? emptyPortForm;
+                  const formDirty =
+                    Boolean(portSelected) &&
+                    (form.patchPanel !== (baseline.patchPanel ?? '') ||
+                      form.vlan !== (baseline.vlan ?? '') ||
+                      form.ipAddress !== (baseline.ipAddress ?? '') ||
+                      form.comment !== (baseline.comment ?? ''));
+                  const showSavedState =
+                    Boolean(savedIndicators[device.id]) && !formDirty && !deviceSaving;
+                  const formDisabled = !portSelected || deviceSaving;
+                  const saveDisabled = formDisabled || !formDirty;
+                  const clearDisabled = formDisabled;
                   const handleSavePort = () => {
                     if (!portSelected || saveDisabled) return;
+                    clearSavedIndicator(device.id);
                     updatePort.mutateAsync({
                       deviceId: device.id,
                       cabinetId: device.cabinetId,
@@ -335,11 +444,13 @@ export function PortHubView() {
                             </button>
                             <button
                               type="button"
-                              className={`device-save-button ${hasFormValue && !saveDisabled ? 'dirty' : ''}`}
+                              className={`device-save-button ${
+                                showSavedState ? 'saved' : formDirty ? 'dirty' : ''
+                              }`}
                               onClick={handleSavePort}
                               disabled={saveDisabled}
                             >
-                              {deviceSaving ? 'Saving…' : 'Save'}
+                              {showSavedState ? 'Saved' : deviceSaving ? 'Saving…' : 'Save'}
                             </button>
                             {deleteConfirmationId === device.id ? (
                               <>
@@ -400,7 +511,7 @@ export function PortHubView() {
                                   type="button"
                                   className="device-clear-button"
                                   onClick={() => clearPortForm(device.id)}
-                                  disabled={saveDisabled}
+                                  disabled={clearDisabled}
                                 >
                                   Clear
                                 </button>
@@ -443,7 +554,7 @@ export function PortHubView() {
                               onChange={(e) =>
                                 handlePortFieldChange(device.id, 'patchPanel', e.target.value)
                               }
-                              disabled={saveDisabled}
+                              disabled={formDisabled}
                               placeholder="Tag"
                             />
                           </label>
@@ -453,7 +564,7 @@ export function PortHubView() {
                               className="input"
                               value={form.vlan}
                               onChange={(e) => handlePortFieldChange(device.id, 'vlan', e.target.value)}
-                              disabled={saveDisabled}
+                              disabled={formDisabled}
                               placeholder="VLAN"
                             />
                           </label>
@@ -465,7 +576,7 @@ export function PortHubView() {
                               onChange={(e) =>
                                 handlePortFieldChange(device.id, 'ipAddress', e.target.value)
                               }
-                              disabled={saveDisabled}
+                              disabled={formDisabled}
                               placeholder="192.0.2.1"
                             />
                           </label>
@@ -477,7 +588,7 @@ export function PortHubView() {
                               onChange={(e) =>
                                 handlePortFieldChange(device.id, 'comment', e.target.value)
                               }
-                              disabled={saveDisabled}
+                              disabled={formDisabled}
                               placeholder="Notes"
                             />
                           </label>

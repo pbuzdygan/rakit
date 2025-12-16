@@ -1674,6 +1674,13 @@ html {
   color: color-mix(in srgb, var(--warning) 90%, black);
 }
 
+.device-save-button.saved {
+  animation: none;
+  background: color-mix(in srgb, var(--success) 32%, transparent);
+  border-color: color-mix(in srgb, var(--success) 55%, transparent);
+  color: color-mix(in srgb, var(--success) 95%, black);
+}
+
 @keyframes savePulse {
   0% {
     box-shadow: 0 0 0 0 rgba(255, 149, 0, 0.4);
@@ -1695,6 +1702,14 @@ html {
   font-size: 0.72rem;
   cursor: pointer;
   transition: color var(--transition), border-color var(--transition);
+}
+
+.device-save-button:disabled,
+.device-clear-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  animation: none;
+  box-shadow: none;
 }
 
 .device-comment,
