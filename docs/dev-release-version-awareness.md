@@ -61,32 +61,31 @@ jobs:
             --build-arg APP_VERSION=${{ steps.vars.outputs.version }} \
             --build-arg APP_REPO=${{ github.repository }} \
             --build-arg APP_CHANNEL=${{ steps.vars.outputs.channel }} \
-            -t ghcr.io/${{ github.repository }}:latest \
+            -t ghcr.io/${{ github.repository }}:${{ steps.vars.outputs.version }} \
             .
 
 
-      - name: Push Docker image (latest)
+      - name: Push versioned image
         run: |
-          docker push ghcr.io/${{ github.repository }}:latest
+          docker push ghcr.io/${{ github.repository }}:${{ steps.vars.outputs.version }}
 
-      - name: Tag image with release version
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Tag main latest alias
+        if: github.event.release.target_commitish == 'main'
         run: |
-          VERSION=${GITHUB_REF#refs/tags/}
-          docker tag ghcr.io/${{ github.repository }}:latest ghcr.io/${{ github.repository }}:$VERSION
-          docker push ghcr.io/${{ github.repository }}:$VERSION
+          docker tag ghcr.io/${{ github.repository }}:${{ steps.vars.outputs.version }} ghcr.io/${{ github.repository }}:latest
+          docker push ghcr.io/${{ github.repository }}:latest
 
       - name: Tag dev latest alias
         if: github.event.release.target_commitish == 'dev'
         run: |
-          docker tag ghcr.io/${{ github.repository }}:latest ghcr.io/${{ github.repository }}:dev_latest
+          docker tag ghcr.io/${{ github.repository }}:${{ steps.vars.outputs.version }} ghcr.io/${{ github.repository }}:dev_latest
           docker push ghcr.io/${{ github.repository }}:dev_latest
 ```
 
 **Najważniejsze cechy:**
 - Warunek na poziomie joba wymusza, by release pochodził z `main` lub `dev`.
 - Kanał (`main` / `dev`) trafia do zmiennych builda i później do aplikacji.
-- Alias `dev_latest` sprawia, że środowisko testowe zawsze wskazuje na aktualną paczkę dev bez zmiany tagu.
+- Alias `latest` aktualizuje się tylko dla releasów z `main`, a `dev_latest` tylko dla releasów `dev`, dzięki czemu środowiska nie „przeskakują” między kanałami.
 
 ---
 
