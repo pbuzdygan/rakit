@@ -67,150 +67,297 @@ export function MainBar() {
   return (
     <div className="py-3">
       <Surface className="stack gap-4 mainbar-shell">
-        <div className="mainbar-head">
-          <div className="stack-sm mainbar-title-block">
-            <h2 className="type-title-xl">{meta.title}</h2>
-            {caption ? <p className="type-body-sm text-textSec">{caption}</p> : null}
+        <div className="mainbar-desktop stack gap-3">
+          <div className="mainbar-head">
+            <div className="stack-sm mainbar-title-block">
+              <h2 className="type-title-xl">{meta.title}</h2>
+              {caption ? <p className="type-body-sm text-textSec">{caption}</p> : null}
+            </div>
+            <div className="rakit-emblem hidden md:flex">
+              <img
+                src="/icon-128x128.png"
+                alt="Rakit"
+                className="h-[76px] w-auto object-contain drop-shadow-lg"
+              />
+            </div>
+            <div className="flex items-center utility-group">
+              <SoftButton
+                variant="ghost"
+                className="utility-button"
+                aria-label="Lock session"
+                onClick={lockSession}
+              >
+                🔒
+              </SoftButton>
+              <SoftButton
+                variant="ghost"
+                className="utility-button"
+                aria-label="Toggle theme"
+                onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
+              >
+                <span key={theme} className="theme-icon inline-block">
+                  {theme === 'light' ? '🌙' : '☀️'}
+                </span>
+              </SoftButton>
+            </div>
           </div>
-          <div className="rakit-emblem hidden md:flex">
-            <img
-              src="/icon-128x128.png"
-              alt="Rakit"
-              className="h-[76px] w-auto object-contain drop-shadow-lg"
-            />
+
+          <div className="version-indicator-row">
+            <VersionIndicator compact />
           </div>
-          <div className="flex items-center utility-group">
+
+          <div className="mainbar-tabs-row">
+            <div className="chip-group mainbar-tabs" role="tablist" aria-label="Rakit views">
+              {VIEW_TABS.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={view === item.id}
+                  className={`chip-button ${view === item.id ? 'active' : ''}`}
+                  onClick={() => setView(item.id)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+            <DropdownMenu label="Menu" align="right" buttonClassName="utility-menu-btn">
+              {({ close }) => (
+                <>
+                  <DropdownItem
+                    onSelect={() => {
+                      openModal('export');
+                      close();
+                    }}
+                  >
+                    Export snapshot
+                  </DropdownItem>
+                  <DropdownItem
+                    onSelect={() => {
+                      openIpDashProfileModal();
+                      close();
+                    }}
+                  >
+                    Manage profiles
+                  </DropdownItem>
+                  <DropdownItem
+                    onSelect={() => {
+                      openModal('settings');
+                      close();
+                    }}
+                  >
+                    Settings
+                  </DropdownItem>
+                </>
+              )}
+            </DropdownMenu>
+          </div>
+
+          {view === 'ipdash' && (
+            <div className="ipdash-toolbar">
+              <div className="ipdash-toolbar-left">
+                <SoftButton
+                  variant={ipDashViewMode === 'table' ? 'solid' : 'ghost'}
+                  onClick={() => setIpDashViewMode('table')}
+                >
+                  Table View
+                </SoftButton>
+                <SoftButton
+                  variant={ipDashViewMode === 'grid' ? 'solid' : 'ghost'}
+                  onClick={() => setIpDashViewMode('grid')}
+                >
+                  Grid View
+                </SoftButton>
+                <SoftButton variant="ghost" onClick={() => triggerIpDashRefresh()}>
+                  Refresh
+                </SoftButton>
+              </div>
+              <div className="ipdash-toolbar-right">
+                <IpDashProfileMenu />
+              </div>
+            </div>
+          )}
+
+          {view === 'cabinet' && (
+            <div className="mainbar-action-bar">
+              <SoftButton
+                onClick={() => {
+                  setEditingCabinetId(null);
+                  openModal('addCabinet');
+                }}
+              >
+                Add cabinet
+              </SoftButton>
+              <DropdownMenu
+                label={
+                  cabinetsQuery.isFetching
+                    ? 'Loading cabinets...'
+                    : `Cabinet: ${cabinets.find((c) => c.id === selectedCabinetId)?.name ?? 'Select'}`
+                }
+                buttonClassName="cabinet-selector"
+              >
+                {({ close }) => (
+                  <>
+                    {cabinets.length === 0 && <DropdownItem disabled>No cabinets yet</DropdownItem>}
+                    {cabinets.map((cabinet) => (
+                      <DropdownItem
+                        key={cabinet.id}
+                        onSelect={() => {
+                          setSelectedCabinetId(cabinet.id);
+                          close();
+                        }}
+                      >
+                        {cabinet.name}
+                      </DropdownItem>
+                    ))}
+                  </>
+                )}
+              </DropdownMenu>
+            </div>
+          )}
+        </div>
+
+        <div className="mainbar-mobile">
+          <div className="mobile-tabs-row">
+            <div className="chip-group mainbar-tabs" role="tablist" aria-label="Rakit views">
+              {VIEW_TABS.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={view === item.id}
+                  className={`chip-button ${view === item.id ? 'active' : ''}`}
+                  onClick={() => setView(item.id)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="mobile-utility-row">
+            <DropdownMenu label="Menu" align="left" buttonClassName="utility-menu-btn mobile-menu-btn">
+              {({ close }) => (
+                <>
+                  <DropdownItem
+                    onSelect={() => {
+                      openModal('export');
+                      close();
+                    }}
+                  >
+                    Export snapshot
+                  </DropdownItem>
+                  <DropdownItem
+                    onSelect={() => {
+                      openIpDashProfileModal();
+                      close();
+                    }}
+                  >
+                    Manage profiles
+                  </DropdownItem>
+                  <DropdownItem
+                    onSelect={() => {
+                      openModal('settings');
+                      close();
+                    }}
+                  >
+                    Settings
+                  </DropdownItem>
+                </>
+              )}
+            </DropdownMenu>
             <SoftButton
               variant="ghost"
-              className="utility-button"
               aria-label="Lock session"
               onClick={lockSession}
+              className="utility-button mobile-compact-button"
             >
               🔒
             </SoftButton>
             <SoftButton
               variant="ghost"
-              className="utility-button"
               aria-label="Toggle theme"
               onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
+              className="utility-button mobile-compact-button"
             >
               <span key={theme} className="theme-icon inline-block">
                 {theme === 'light' ? '🌙' : '☀️'}
               </span>
             </SoftButton>
+            <VersionIndicator compact />
           </div>
-        </div>
 
-        <div className="version-indicator-row">
-          <VersionIndicator compact />
-        </div>
+          {view === 'ipdash' && (
+            <>
+              <div className="mobile-ipdash-actions">
+                <SoftButton
+                  variant={ipDashViewMode === 'table' ? 'solid' : 'ghost'}
+                  onClick={() => setIpDashViewMode('table')}
+                  className="mobile-compact-button"
+                >
+                  Table
+                </SoftButton>
+                <SoftButton
+                  variant={ipDashViewMode === 'grid' ? 'solid' : 'ghost'}
+                  onClick={() => setIpDashViewMode('grid')}
+                  className="mobile-compact-button"
+                >
+                  Grid
+                </SoftButton>
+                <SoftButton
+                  variant="ghost"
+                  onClick={() => triggerIpDashRefresh()}
+                  className="mobile-compact-button"
+                >
+                  Refresh
+                </SoftButton>
+              </div>
+              <div className="mobile-ipdash-profile">
+                <IpDashProfileMenu />
+              </div>
+            </>
+          )}
 
-        <div className="mainbar-tabs-row">
-          <div className="chip-group mainbar-tabs" role="tablist" aria-label="Rakit views">
-            {VIEW_TABS.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                role="tab"
-                aria-selected={view === item.id}
-                className={`chip-button ${view === item.id ? 'active' : ''}`}
-                onClick={() => setView(item.id)}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-          <DropdownMenu label="Menu" align="right" buttonClassName="utility-menu-btn">
-            {({ close }) => (
-              <>
-                <DropdownItem
-                  onSelect={() => {
-                    openModal('export');
-                    close();
-                  }}
-                >
-                  Export snapshot
-                </DropdownItem>
-                <DropdownItem
-                  onSelect={() => {
-                    openIpDashProfileModal();
-                    close();
-                  }}
-                >
-                  Manage profiles
-                </DropdownItem>
-                <DropdownItem
-                  onSelect={() => {
-                    openModal('settings');
-                    close();
-                  }}
-                >
-                  Settings
-                </DropdownItem>
-              </>
-            )}
-          </DropdownMenu>
-        </div>
-
-        {view === 'ipdash' && (
-          <div className="ipdash-toolbar">
-            <div className="ipdash-toolbar-left">
-              <SoftButton variant={ipDashViewMode === 'table' ? 'solid' : 'ghost'} onClick={() => setIpDashViewMode('table')}>
-                Table View
-              </SoftButton>
+          {view === 'cabinet' && (
+            <div className="mobile-cabinet-actions">
               <SoftButton
-                variant={ipDashViewMode === 'grid' ? 'solid' : 'ghost'}
-                onClick={() => setIpDashViewMode('grid')}
+                block
+                onClick={() => {
+                  setEditingCabinetId(null);
+                  openModal('addCabinet');
+                }}
               >
-                Grid View
+                Add cabinet
               </SoftButton>
-              <SoftButton variant="ghost" onClick={() => triggerIpDashRefresh()}>
-                Refresh
-              </SoftButton>
+              <DropdownMenu
+                label={
+                  cabinetsQuery.isFetching
+                    ? 'Loading cabinets...'
+                    : `Cabinet: ${cabinets.find((c) => c.id === selectedCabinetId)?.name ?? 'Select'}`
+                }
+                block
+                buttonClassName="cabinet-selector"
+              >
+                {({ close }) => (
+                  <>
+                    {cabinets.length === 0 && <DropdownItem disabled>No cabinets yet</DropdownItem>}
+                    {cabinets.map((cabinet) => (
+                      <DropdownItem
+                        key={cabinet.id}
+                        onSelect={() => {
+                          setSelectedCabinetId(cabinet.id);
+                          close();
+                        }}
+                      >
+                        {cabinet.name}
+                      </DropdownItem>
+                    ))}
+                  </>
+                )}
+              </DropdownMenu>
             </div>
-            <div className="ipdash-toolbar-right">
-              <IpDashProfileMenu />
-            </div>
-          </div>
-        )}
-
-        {view === 'cabinet' && (
-          <div className="mainbar-action-bar">
-            <SoftButton
-              onClick={() => {
-                setEditingCabinetId(null);
-                openModal('addCabinet');
-              }}
-            >
-              Add cabinet
-            </SoftButton>
-            <DropdownMenu
-              label={
-                cabinetsQuery.isFetching
-                  ? 'Loading cabinets...'
-                  : `Cabinet: ${cabinets.find((c) => c.id === selectedCabinetId)?.name ?? 'Select'}`
-              }
-              buttonClassName="cabinet-selector"
-            >
-              {({ close }) => (
-                <>
-                  {cabinets.length === 0 && <DropdownItem disabled>No cabinets yet</DropdownItem>}
-                  {cabinets.map((cabinet) => (
-                    <DropdownItem
-                      key={cabinet.id}
-                      onSelect={() => {
-                        setSelectedCabinetId(cabinet.id);
-                        close();
-                      }}
-                    >
-                      {cabinet.name}
-                    </DropdownItem>
-                  ))}
-                </>
-              )}
-            </DropdownMenu>
-          </div>
-        )}
+          )}
+        </div>
       </Surface>
     </div>
   );

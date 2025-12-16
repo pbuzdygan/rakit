@@ -1573,6 +1573,75 @@ html {
   justify-content: space-between;
   gap: 1rem;
   flex-wrap: nowrap;
+  margin-top: -0.25rem;
+}
+
+.mainbar-desktop {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.mainbar-mobile {
+  display: none;
+}
+
+.mobile-tabs-row .chip-group {
+  width: 100%;
+  justify-content: center;
+}
+
+.mobile-utility-row,
+.mobile-ipdash-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.mobile-utility-row {
+  justify-content: flex-start;
+}
+
+.mobile-utility-row .version-indicator {
+  margin-left: auto;
+}
+
+.mobile-ipdash-actions {
+  justify-content: center;
+}
+
+.mobile-ipdash-profile,
+.mobile-cabinet-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.mobile-compact-button {
+  padding: 0.4rem 0.8rem;
+  font-size: 0.85rem;
+  min-width: 64px;
+}
+
+.mobile-compact-button.utility-button {
+  width: 40px;
+  height: 40px;
+}
+
+.mobile-menu-btn {
+  min-width: 120px;
+}
+
+.mobile-ipdash-profile .ipdash-profile-menu-shell,
+.mobile-ipdash-profile .dropdown-root,
+.mobile-cabinet-actions .dropdown-root {
+  width: 100%;
+}
+
+.mobile-ipdash-profile .soft-button,
+.mobile-cabinet-actions .soft-button {
+  width: 100%;
 }
 
 .version-indicator-row {
@@ -1602,14 +1671,18 @@ html {
     padding: 0.85rem 1rem;
   }
 
-  .mainbar-tabs-row {
-    align-items: stretch;
-    flex-wrap: wrap;
+  .mainbar-desktop {
+    display: none;
   }
 
-  .version-indicator-row {
-    justify-content: flex-start;
-    margin-top: 0;
+  .mainbar-mobile {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .mainbar-title-block {
+    display: none;
   }
 }
 
