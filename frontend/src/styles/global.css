@@ -1568,11 +1568,13 @@ html {
 }
 
 .porthub-field-narrow {
-  max-width: 220px;
+  max-width: 180px;
 }
 
 .porthub-field-comment {
   grid-column: 1 / -1;
+  max-width: 260px;
+  justify-self: flex-start;
 }
 
 .porthub-form-grid .full-span {
@@ -1586,10 +1588,11 @@ html {
 }
 
 .porthub-form-actions-inline {
-  grid-column: span 2;
-  justify-content: flex-end;
+  grid-column: 1 / -1;
+  justify-content: flex-start;
   display: flex;
   gap: 0.4rem;
+  flex-wrap: wrap;
 }
 
 .porthub-empty {
@@ -1645,6 +1648,25 @@ html {
 .device-actions {
   display: flex;
   gap: 0.4rem;
+}
+
+.device-link-mode {
+  border: 1px solid color-mix(in srgb, var(--accent) 65%, transparent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent-strong, var(--accent));
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1;
+  border-radius: 999px;
+  padding: 0.2rem 0.6rem;
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition), color var(--transition);
+}
+
+.device-link-mode.active {
+  background: var(--accent);
+  color: var(--text-on-accent);
+  border-color: var(--accent);
 }
 
 .device-comment,

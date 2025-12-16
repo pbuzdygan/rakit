@@ -38,6 +38,7 @@ export function PortHubView() {
   const [portForms, setPortForms] = useState<Record<number, typeof emptyPortForm>>({});
   const [statusMessages, setStatusMessages] = useState<Record<number, string | null>>({});
   const [deleteConfirmationId, setDeleteConfirmationId] = useState<number | null>(null);
+  const [linkMode, setLinkMode] = useState(false);
   const queryClient = useQueryClient();
   const openCommentModal = useAppStore((s) => s.openCommentModal);
   const setEditingDevice = useAppStore((s) => s.setEditingDevice);
@@ -55,6 +56,7 @@ export function PortHubView() {
     setPortForms({});
     setStatusMessages({});
     setDeleteConfirmationId(null);
+    setLinkMode(false);
   }, [activeCabinetId]);
 
   const filteredDevices = useMemo(() => {
@@ -65,6 +67,12 @@ export function PortHubView() {
   useEffect(() => {
     setSelectedDevices((prev) => prev.filter((id) => filteredDevices.some((device) => device.id === id)));
   }, [filteredDevices]);
+
+  useEffect(() => {
+    if (!selectedDevices.length) {
+      setLinkMode(false);
+    }
+  }, [selectedDevices.length]);
 
   const toggleDeviceSelection = (deviceId: number) => {
     setSelectedDevices((prev) => {
@@ -218,6 +226,11 @@ export function PortHubView() {
     await deleteDevice.mutateAsync({ cabinetId: device.cabinetId, deviceId: device.id });
   };
 
+  const toggleLinkMode = () => {
+    setDeleteConfirmationId(null);
+    setLinkMode((prev) => !prev);
+  };
+
   const filterButtons: Array<{ id: 'all' | number; label: string }> = [
     { id: 'all', label: 'All Devices' },
     ...cabinets.map((cabinet) => ({ id: cabinet.id, label: cabinet.name })),
@@ -293,6 +306,14 @@ export function PortHubView() {
                             {device.model ? <p className="text-textSec">{device.model}</p> : null}
                           </div>
                           <div className="device-actions device-actions--compact">
+                            <button
+                              type="button"
+                              className={`device-link-mode ${linkMode ? 'active' : ''}`}
+                              onClick={toggleLinkMode}
+                              aria-pressed={linkMode}
+                            >
+                              {linkMode ? 'Exit mode' : 'Link mode'}
+                            </button>
                             {deleteConfirmationId === device.id ? (
                               <>
                                 <button
