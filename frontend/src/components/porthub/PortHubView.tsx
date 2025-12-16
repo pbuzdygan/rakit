@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, useQueries } from '@tanstack/react-query';
 import { Api } from '../../api';
 import { Surface } from '../Surface';
 import { SoftButton } from '../SoftButton';
@@ -29,10 +29,10 @@ const emptyPortForm = { patchPanel: '', vlan: '', comment: '', ipAddress: '' };
 
 export function PortHubView() {
   const [activeCabinetId, setActiveCabinetId] = useState<number | 'all'>('all');
-  const [activeDeviceId, setActiveDeviceId] = useState<number | null>(null);
-  const [selectedPort, setSelectedPort] = useState<number | null>(null);
-  const [portForm, setPortForm] = useState(emptyPortForm);
-  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [selectedDevices, setSelectedDevices] = useState<number[]>([]);
+  const [selectedPorts, setSelectedPorts] = useState<Record<number, number | null>>({});
+  const [portForms, setPortForms] = useState<Record<number, typeof emptyPortForm>>({});
+  const [statusMessages, setStatusMessages] = useState<Record<number, string | null>>({});
   const queryClient = useQueryClient();
 
   const cabinetsQuery = useQuery({ queryKey: ['cabinets'], queryFn: Api.cabinets.list });
@@ -41,85 +41,119 @@ export function PortHubView() {
   const devicesQuery = useQuery({ queryKey: ['porthub-devices'], queryFn: Api.portHub.devices });
   const devices = (devicesQuery.data?.devices ?? []) as PortAwareDevice[];
 
-  const activeDevice = useMemo(
-    () => devices.find((device) => device.id === activeDeviceId) ?? null,
-    [devices, activeDeviceId]
-  );
-
-  const portsQuery = useQuery({
-    queryKey: ['device-ports', activeDevice?.cabinetId, activeDevice?.id],
-    queryFn: () => Api.devicePorts.list(activeDevice!.cabinetId, activeDevice!.id),
-    enabled: Boolean(activeDevice),
-  });
-  const ports = (portsQuery.data?.ports ?? []) as DevicePort[];
-
   useEffect(() => {
-    setSelectedPort(null);
-    setPortForm(emptyPortForm);
-    setStatusMessage(null);
-  }, [activeDeviceId]);
-
-  useEffect(() => {
-    if (!selectedPort) {
-      setPortForm(emptyPortForm);
-      return;
-    }
-    const port = ports.find((entry) => entry.portNumber === selectedPort);
-    setPortForm({
-      patchPanel: port?.patchPanel ?? '',
-      vlan: port?.vlan ?? '',
-      comment: port?.comment ?? '',
-      ipAddress: port?.ipAddress ?? '',
-    });
-  }, [selectedPort, ports]);
-
-  const handleSelectDevice = (deviceId: number) => {
-    setActiveDeviceId(deviceId);
-  };
-
-  const handleSelectPort = (portNumber: number) => {
-    setSelectedPort(portNumber);
-    setStatusMessage(null);
-  };
+    setSelectedDevices([]);
+    setSelectedPorts({});
+    setPortForms({});
+    setStatusMessages({});
+  }, [activeCabinetId]);
 
   const filteredDevices = useMemo(() => {
     if (activeCabinetId === 'all') return devices;
     return devices.filter((device) => device.cabinetId === activeCabinetId);
   }, [devices, activeCabinetId]);
 
-  const updatePort = useMutation({
-    mutationFn: async () => {
-      if (!activeDevice || !selectedPort) return null;
-      const payload = {
-        patchPanel: portForm.patchPanel || null,
-        vlan: portForm.vlan || null,
-        comment: portForm.comment || null,
-        ipAddress: portForm.ipAddress || null,
-      };
-      return Api.devicePorts.update(activeDevice.cabinetId, activeDevice.id, selectedPort, payload);
-    },
-    onSuccess: async () => {
-      if (activeDevice) {
-        await queryClient.invalidateQueries({ queryKey: ['device-ports', activeDevice.cabinetId, activeDevice.id] });
-        setStatusMessage('Port details saved.');
+  useEffect(() => {
+    setSelectedDevices((prev) => prev.filter((id) => filteredDevices.some((device) => device.id === id)));
+  }, [filteredDevices]);
+
+  const toggleDeviceSelection = (deviceId: number) => {
+    setSelectedDevices((prev) => {
+      if (prev.includes(deviceId)) {
+        const next = prev.filter((id) => id !== deviceId);
+        setSelectedPorts((ports) => {
+          const copy = { ...ports };
+          delete copy[deviceId];
+          return copy;
+        });
+        setPortForms((forms) => {
+          const copy = { ...forms };
+          delete copy[deviceId];
+          return copy;
+        });
+        setStatusMessages((messages) => {
+          const copy = { ...messages };
+          delete copy[deviceId];
+          return copy;
+        });
+        return next;
       }
-    },
-    onError: (err: any) => {
-      setStatusMessage(err?.message || 'Failed to save port.');
-    },
+      setSelectedPorts((ports) => ({ ...ports, [deviceId]: null }));
+      setPortForms((forms) => ({ ...forms, [deviceId]: emptyPortForm }));
+      setStatusMessages((messages) => ({ ...messages, [deviceId]: null }));
+      return [...prev, deviceId];
+    });
+  };
+
+  const portQueries = useQueries({
+    queries: selectedDevices.map((deviceId) => {
+      const device = devices.find((entry) => entry.id === deviceId);
+      return {
+        queryKey: ['device-ports', device?.cabinetId, deviceId],
+        queryFn: () => Api.devicePorts.list(device!.cabinetId, deviceId),
+        enabled: Boolean(device),
+      };
+    }),
   });
 
-  const handlePortFieldChange = (key: keyof typeof portForm, value: string) => {
-    setPortForm((prev) => ({ ...prev, [key]: value }));
+  const getPortsForDevice = (deviceId: number) => {
+    const index = selectedDevices.indexOf(deviceId);
+    if (index === -1) return [];
+    const query = portQueries[index];
+    return ((query?.data?.ports ?? []) as DevicePort[]) || [];
   };
 
-  const clearPortForm = () => {
-    setPortForm(emptyPortForm);
+  const handleSelectPort = (deviceId: number, portNumber: number) => {
+    setSelectedPorts((prev) => ({ ...prev, [deviceId]: portNumber }));
+    const ports = getPortsForDevice(deviceId);
+    const port = ports.find((entry) => entry.portNumber === portNumber);
+    setPortForms((prev) => ({
+      ...prev,
+      [deviceId]: {
+        patchPanel: port?.patchPanel ?? '',
+        vlan: port?.vlan ?? '',
+        comment: port?.comment ?? '',
+        ipAddress: port?.ipAddress ?? '',
+      },
+    }));
+    setStatusMessages((prev) => ({ ...prev, [deviceId]: null }));
   };
 
-  const isSaving = updatePort.isPending;
-  const deviceSelected = Boolean(activeDevice);
-  const portSelected = deviceSelected && selectedPort != null;
+  const handlePortFieldChange = (deviceId: number, key: keyof typeof portForm, value: string) => {
+    setPortForms((prev) => ({
+      ...prev,
+      [deviceId]: { ...(prev[deviceId] ?? emptyPortForm), [key]: value },
+    }));
+  };
+
+  const clearPortForm = (deviceId: number) => {
+    setPortForms((prev) => ({ ...prev, [deviceId]: emptyPortForm }));
+    setStatusMessages((prev) => ({ ...prev, [deviceId]: null }));
+  };
+
+  const updatePort = useMutation({
+    mutationFn: async ({
+      deviceId,
+      cabinetId,
+      portNumber,
+      payload,
+    }: {
+      deviceId: number;
+      cabinetId: number;
+      portNumber: number;
+      payload: any;
+    }) => Api.devicePorts.update(cabinetId, deviceId, portNumber, payload),
+    onSuccess: async (_, variables) => {
+      if (!variables) return;
+      const { deviceId, cabinetId } = variables;
+      await queryClient.invalidateQueries({ queryKey: ['device-ports', cabinetId, deviceId] });
+      setStatusMessages((prev) => ({ ...prev, [deviceId]: 'Port details saved.' }));
+    },
+    onError: (err: any, variables) => {
+      if (!variables) return;
+      setStatusMessages((prev) => ({ ...prev, [variables.deviceId]: err?.message || 'Failed to save port.' }));
+    },
+  });
 
   const filterButtons: Array<{ id: 'all' | number; label: string }> = [
     { id: 'all', label: 'All Devices' },
@@ -151,8 +185,8 @@ export function PortHubView() {
                   <button
                     key={device.id}
                     type="button"
-                    className={`porthub-device ${activeDeviceId === device.id ? 'active' : ''}`}
-                    onClick={() => handleSelectDevice(device.id)}
+                    className={`porthub-device ${selectedDevices.includes(device.id) ? 'active' : ''}`}
+                    onClick={() => toggleDeviceSelection(device.id)}
                     title={`Cabinet: ${device.cabinetName}`}
                   >
                     <div className="device-title">
@@ -166,99 +200,140 @@ export function PortHubView() {
             </div>
           </div>
           <div className="porthub-main">
-            {!activeDevice ? (
+            {selectedDevices.length === 0 ? (
               <div className="porthub-empty">
-                <p className="type-body-sm text-textSec">Select a device to visualize and edit its ports.</p>
+                <p className="type-body-sm text-textSec">Select devices to visualize and edit their ports.</p>
               </div>
             ) : (
-              <>
-                <div className="porthub-device-meta">
-                  <h3>
-                    {activeDevice.type}{' '}
-                    <span className="porthub-device-location">in {activeDevice.cabinetName}</span>
-                  </h3>
-                  {activeDevice.model ? <p className="text-textSec">{activeDevice.model}</p> : null}
-                </div>
-                <div className="porthub-port-grid">
-                  {Array.from({ length: activeDevice.numberOfPorts }, (_, idx) => {
-                    const portNumber = idx + 1;
-                    const portData = ports.find((port) => port.portNumber === portNumber);
-                    const hasData =
-                      Boolean(portData?.patchPanel) ||
-                      Boolean(portData?.vlan) ||
-                      Boolean(portData?.comment) ||
-                      Boolean(portData?.ipAddress);
-                    return (
-                      <button
-                        key={portNumber}
-                        type="button"
-                        className={`porthub-port ${selectedPort === portNumber ? 'selected' : ''} ${
-                          hasData ? 'has-data' : ''
-                        }`}
-                        onClick={() => handleSelectPort(portNumber)}
-                      >
-                        {portNumber}
-                      </button>
-                    );
-                  })}
-                </div>
-                <div className="porthub-port-form">
-                  {!portSelected && (
-                    <p className="type-caption text-textSec">Select a port to edit its metadata.</p>
-                  )}
-                  {statusMessage && <p className="type-caption text-textSec">{statusMessage}</p>}
-                  <div className="porthub-form-grid compact">
-                    <label className="stack-sm">
-                      <span className="field-label">Patch Panel</span>
-                      <input
-                        className="input"
-                        value={portForm.patchPanel}
-                        onChange={(e) => handlePortFieldChange('patchPanel', e.target.value)}
-                        disabled={!portSelected || isSaving}
-                        placeholder="Panel / port"
-                      />
-                    </label>
-                    <label className="stack-sm">
-                      <span className="field-label">VLAN</span>
-                      <input
-                        className="input"
-                        value={portForm.vlan}
-                        onChange={(e) => handlePortFieldChange('vlan', e.target.value)}
-                        disabled={!portSelected || isSaving}
-                        placeholder="VLAN"
-                      />
-                    </label>
-                    <label className="stack-sm">
-                      <span className="field-label">Address IP</span>
-                      <input
-                        className="input"
-                        value={portForm.ipAddress}
-                        onChange={(e) => handlePortFieldChange('ipAddress', e.target.value)}
-                        disabled={!portSelected || isSaving}
-                        placeholder="192.0.2.1"
-                      />
-                    </label>
-                    <label className="stack-sm">
-                      <span className="field-label">Comment</span>
-                      <input
-                        className="input"
-                        value={portForm.comment}
-                        onChange={(e) => handlePortFieldChange('comment', e.target.value)}
-                        disabled={!portSelected || isSaving}
-                        placeholder="Notes"
-                      />
-                    </label>
-                  </div>
-                  <div className="porthub-form-actions">
-                    <SoftButton variant="ghost" onClick={clearPortForm} disabled={!portSelected || isSaving}>
-                      Clear
-                    </SoftButton>
-                    <SoftButton onClick={() => updatePort.mutateAsync()} disabled={!portSelected || isSaving}>
-                      {isSaving ? 'Saving…' : 'Save'}
-                    </SoftButton>
-                  </div>
-                </div>
-              </>
+              selectedDevices
+                .map((id) => devices.find((device) => device.id === id))
+                .filter((device): device is PortAwareDevice => Boolean(device))
+                .map((device) => {
+                  const devicePorts = getPortsForDevice(device.id);
+                  const portSelected = selectedPorts[device.id] ?? null;
+                  const form = portForms[device.id] ?? emptyPortForm;
+                  const statusMessage = statusMessages[device.id] ?? null;
+                  const deviceSaving =
+                    updatePort.isPending && updatePort.variables?.deviceId === device.id;
+                  const saveDisabled = !portSelected || deviceSaving;
+                  return (
+                    <div key={device.id} className="porthub-device-section">
+                      <div className="porthub-device-meta">
+                        <h3>
+                          {device.type}{' '}
+                          <span className="porthub-device-location">in {device.cabinetName}</span>
+                        </h3>
+                        {device.model ? <p className="text-textSec">{device.model}</p> : null}
+                      </div>
+                      <div className="porthub-port-grid">
+                        {Array.from({ length: device.numberOfPorts }, (_, idx) => {
+                          const portNumber = idx + 1;
+                          const portData = devicePorts.find((port) => port.portNumber === portNumber);
+                          const hasData =
+                            Boolean(portData?.patchPanel) ||
+                            Boolean(portData?.vlan) ||
+                            Boolean(portData?.comment) ||
+                            Boolean(portData?.ipAddress);
+                          return (
+                            <button
+                              key={portNumber}
+                              type="button"
+                              className={`porthub-port ${
+                                portSelected === portNumber ? 'selected' : ''
+                              } ${hasData ? 'has-data' : ''}`}
+                              onClick={() => handleSelectPort(device.id, portNumber)}
+                            >
+                              {portNumber}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div className="porthub-port-form">
+                        {!portSelected && (
+                          <p className="type-caption text-textSec">
+                            Select a port to edit its metadata.
+                          </p>
+                        )}
+                        {statusMessage && <p className="type-caption text-textSec">{statusMessage}</p>}
+                        <div className="porthub-form-grid compact">
+                          <label className="stack-sm">
+                            <span className="field-label">Patch Panel</span>
+                            <input
+                              className="input"
+                              value={form.patchPanel}
+                              onChange={(e) =>
+                                handlePortFieldChange(device.id, 'patchPanel', e.target.value)
+                              }
+                              disabled={saveDisabled}
+                              placeholder="Panel / port"
+                            />
+                          </label>
+                          <label className="stack-sm">
+                            <span className="field-label">VLAN</span>
+                            <input
+                              className="input"
+                              value={form.vlan}
+                              onChange={(e) => handlePortFieldChange(device.id, 'vlan', e.target.value)}
+                              disabled={saveDisabled}
+                              placeholder="VLAN"
+                            />
+                          </label>
+                          <label className="stack-sm">
+                            <span className="field-label">Address IP</span>
+                            <input
+                              className="input"
+                              value={form.ipAddress}
+                              onChange={(e) =>
+                                handlePortFieldChange(device.id, 'ipAddress', e.target.value)
+                              }
+                              disabled={saveDisabled}
+                              placeholder="192.0.2.1"
+                            />
+                          </label>
+                          <label className="stack-sm">
+                            <span className="field-label">Comment</span>
+                            <input
+                              className="input"
+                              value={form.comment}
+                              onChange={(e) =>
+                                handlePortFieldChange(device.id, 'comment', e.target.value)
+                              }
+                              disabled={saveDisabled}
+                              placeholder="Notes"
+                            />
+                          </label>
+                        </div>
+                        <div className="porthub-form-actions">
+                          <SoftButton
+                            variant="ghost"
+                            onClick={() => clearPortForm(device.id)}
+                            disabled={saveDisabled}
+                          >
+                            Clear
+                          </SoftButton>
+                          <SoftButton
+                            onClick={() =>
+                              updatePort.mutateAsync({
+                                deviceId: device.id,
+                                cabinetId: device.cabinetId,
+                                portNumber: portSelected!,
+                                payload: {
+                                  patchPanel: form.patchPanel || null,
+                                  vlan: form.vlan || null,
+                                  comment: form.comment || null,
+                                  ipAddress: form.ipAddress || null,
+                                },
+                              })
+                            }
+                            disabled={saveDisabled}
+                          >
+                            {deviceSaving ? 'Saving…' : 'Save'}
+                          </SoftButton>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
             )}
           </div>
         </div>

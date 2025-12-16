@@ -183,7 +183,7 @@ export function MainBar() {
           )}
 
           {view === 'porthub' && (
-            <div className="ipdash-toolbar justify-end">
+            <div className="ipdash-toolbar" style={{ justifyContent: 'flex-end' }}>
               <div className="ipdash-toolbar-right">
                 <VersionIndicator compact />
               </div>
