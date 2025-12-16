@@ -1302,7 +1302,12 @@ function HostModal({ entry, onClose, onlineSet, offlineMode, onRemoved }: HostMo
           {removeError && <div className="alert alert-error">{removeError}</div>}
           <div className="flex justify-end gap-2">
             {confirmRemove && (
-              <SoftButton variant="ghost" onClick={cancelRemove} disabled={removing}>
+              <SoftButton
+                variant="ghost"
+                className="ipdash-compact-btn"
+                onClick={cancelRemove}
+                disabled={removing}
+              >
                 Cancel
               </SoftButton>
             )}

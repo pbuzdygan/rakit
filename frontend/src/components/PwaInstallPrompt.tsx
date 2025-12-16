@@ -75,27 +75,28 @@ export function PwaInstallPrompt() {
   if (!visible) return null;
 
   return (
-    <div className="pwa-install-banner" role="dialog" aria-live="polite" aria-label="Instalacja aplikacji Rakit">
+    <div className="pwa-install-banner" role="dialog" aria-live="polite" aria-label="Install Rakit app">
+      <div className="pwa-install-banner__logo">
+        <img src="/icon-128x128.png" alt="Rakit logo" />
+      </div>
       <div className="pwa-install-banner__content">
-        <p className="pwa-install-banner__title">Zainstaluj aplikację Rakit</p>
-        <p className="pwa-install-banner__message">
-          Dodaj konsolę do ekranu głównego, aby startowała szybciej i działała nawet przy gorszej sieci.
-        </p>
+        <p className="pwa-install-banner__title">Add Rakit to your home screen</p>
+        <p className="pwa-install-banner__message">Full offline mode, instant launch.</p>
       </div>
       <div className="pwa-install-banner__actions">
-        <button
-          className="pwa-install-banner__action pwa-install-banner__action--primary"
-          onClick={onInstall}
-          type="button"
-        >
-          Zainstaluj
-        </button>
         <button
           className="pwa-install-banner__action pwa-install-banner__action--ghost"
           onClick={() => hidePrompt(true)}
           type="button"
         >
-          Nie teraz
+          Skip
+        </button>
+        <button
+          className="pwa-install-banner__action pwa-install-banner__action--primary"
+          onClick={onInstall}
+          type="button"
+        >
+          Install
         </button>
       </div>
     </div>

@@ -425,26 +425,28 @@ export function IpDashProfileModal() {
                     <span className="profile-card-meta">Mode: {modeLabel}</span>
                   </div>
                   <div className="profile-card-actions">
-                    <SoftButton
-                      className={`profile-use-btn ${active ? 'is-active' : ''}`}
-                      onClick={() => {
-                        setActiveProfileId(profile.id);
-                        closeModal();
-                      }}
-                    >
-                      {active ? 'Using now' : 'Activate'}
-                    </SoftButton>
-                    <SoftButton
-                      variant="ghost"
-                      className="profile-action-btn"
-                      onClick={() => (editingProfile?.id === profile.id ? cancelEditing() : startEdit(profile))}
-                      disabled={formLocked}
-                    >
-                      {editingProfile?.id === profile.id ? 'Cancel edit' : 'Edit'}
-                    </SoftButton>
+                    <div className="profile-action-row">
+                      <SoftButton
+                        className={`profile-use-btn ${active ? 'is-active' : ''}`}
+                        onClick={() => {
+                          setActiveProfileId(profile.id);
+                          closeModal();
+                        }}
+                      >
+                        {active ? 'Using now' : 'Activate'}
+                      </SoftButton>
+                      <SoftButton
+                        variant="ghost"
+                        className="profile-action-btn"
+                        onClick={() => (editingProfile?.id === profile.id ? cancelEditing() : startEdit(profile))}
+                        disabled={formLocked}
+                      >
+                        {editingProfile?.id === profile.id ? 'Cancel edit' : 'Edit'}
+                      </SoftButton>
+                    </div>
                     <SoftButton
                       variant="danger"
-                      className="profile-action-btn"
+                      className="profile-action-btn profile-remove-btn"
                       onClick={() => {
                         if (confirmRemoveId === profile.id) {
                           removeProfile.mutate(profile.id);

@@ -22,6 +22,9 @@
   --shadow-lift: 0 4px 18px rgba(12, 16, 29, 0.08);
   --shadow-drag: 0 12px 32px rgba(14, 18, 32, 0.18);
   --focus-ring: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent);
+  --scroll-track: color-mix(in srgb, var(--panel) 90%, transparent);
+  --scroll-thumb: color-mix(in srgb, var(--accent) 35%, var(--border-strong));
+  --scroll-thumb-hover: color-mix(in srgb, var(--accent-strong) 45%, var(--border-strong));
 }
 
 
@@ -67,6 +70,34 @@ body {
   line-height: 1.4;
   overflow-y: scroll;
   scrollbar-gutter: stable both-edges;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) var(--scroll-track);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) var(--scroll-track);
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--scroll-track);
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb);
+  border-radius: 999px;
+  border: 2px solid var(--scroll-track);
+  transition: background 160ms ease;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--scroll-thumb-hover);
 }
 
 .input {
@@ -998,18 +1029,14 @@ html {
   flex-direction: column;
   gap: 0.35rem;
   align-items: flex-end;
+  width: 100%;
 }
 
-@media (max-width: 640px) {
-  .profile-card-actions {
-    flex-direction: row;
-    align-items: stretch;
-  }
-  .profile-card-actions .soft-button,
-  .profile-card-actions .profile-action-btn,
-  .profile-card-actions .profile-use-btn {
-    flex: 1 1 auto;
-  }
+.profile-action-row {
+  display: flex;
+  gap: 0.35rem;
+  justify-content: flex-end;
+  width: 100%;
 }
 
 .profile-action-btn {
@@ -1032,6 +1059,10 @@ html {
   box-shadow: var(--shadow-soft);
 }
 
+.profile-remove-btn {
+  align-self: flex-end;
+}
+
 @media (max-width: 640px) {
   .saved-profiles-grid {
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -1046,11 +1077,17 @@ html {
     align-items: stretch;
   }
 
-  .profile-card-actions .soft-button,
-  .profile-card-actions .profile-action-btn,
-  .profile-card-actions .profile-use-btn {
-    width: 100%;
+  .profile-action-row {
     justify-content: center;
+  }
+
+  .profile-action-row .soft-button {
+    flex: 1 1 50%;
+    min-width: 0;
+  }
+
+  .profile-remove-btn {
+    width: 100%;
   }
 }
 .tag-chip {
@@ -1585,7 +1622,13 @@ html {
   justify-content: space-between;
   gap: 1rem;
   flex-wrap: nowrap;
-  margin-top: -0.25rem;
+}
+
+.mainbar-tab-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  flex-shrink: 0;
 }
 
 .mainbar-desktop {
@@ -1654,12 +1697,6 @@ html {
 .mobile-ipdash-profile .soft-button,
 .mobile-cabinet-actions .soft-button {
   width: 100%;
-}
-
-.version-indicator-row {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: -0.25rem;
 }
 
 .utility-group {
@@ -2298,6 +2335,16 @@ html.theme-changing * {
 .modal-header-premium {
   padding-bottom: 0.35rem;
   border-bottom: 1px solid color-mix(in srgb, var(--border-subtle) 65%, transparent);
+  display: flex;
+  justify-content: flex-start;
+  align-items: flex-start;
+  flex-wrap: nowrap;
+  gap: 0.75rem;
+}
+
+.modal-title-region {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .modal-body-premium > .stack {
@@ -2456,6 +2503,23 @@ html.theme-changing * {
   animation: appFadeIn 0.35s ease;
 }
 
+.pwa-install-banner__logo {
+  flex-shrink: 0;
+  width: 64px;
+  height: 64px;
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--panel) 85%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-soft);
+}
+
+.pwa-install-banner__logo img {
+  width: 48px;
+  height: 48px;
+}
+
 .pwa-install-banner__content {
   display: flex;
   flex-direction: column;
@@ -2516,8 +2580,12 @@ html.theme-changing * {
 @media (max-width: 640px) {
   .pwa-install-banner {
     flex-direction: column;
-    text-align: center;
     gap: var(--space-3);
+  }
+
+  .pwa-install-banner__logo {
+    width: 56px;
+    height: 56px;
   }
 
   .pwa-install-banner__actions {

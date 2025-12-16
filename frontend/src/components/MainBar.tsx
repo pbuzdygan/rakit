@@ -102,10 +102,6 @@ export function MainBar() {
             </div>
           </div>
 
-          <div className="version-indicator-row">
-            <VersionIndicator compact />
-          </div>
-
           <div className="mainbar-tabs-row">
             <div className="chip-group mainbar-tabs" role="tablist" aria-label="Rakit views">
               {VIEW_TABS.map((item) => (
@@ -121,36 +117,39 @@ export function MainBar() {
                 </button>
               ))}
             </div>
-            <DropdownMenu label="Menu" align="right" buttonClassName="utility-menu-btn">
-              {({ close }) => (
-                <>
-                  <DropdownItem
-                    onSelect={() => {
-                      openModal('export');
-                      close();
-                    }}
-                  >
-                    Export snapshot
-                  </DropdownItem>
-                  <DropdownItem
-                    onSelect={() => {
-                      openIpDashProfileModal();
-                      close();
-                    }}
-                  >
-                    Manage profiles
-                  </DropdownItem>
-                  <DropdownItem
-                    onSelect={() => {
-                      openModal('settings');
-                      close();
-                    }}
-                  >
-                    Settings
-                  </DropdownItem>
-                </>
-              )}
-            </DropdownMenu>
+            <div className="mainbar-tab-actions">
+              <VersionIndicator compact />
+              <DropdownMenu label="Menu" align="right" buttonClassName="utility-menu-btn">
+                {({ close }) => (
+                  <>
+                    <DropdownItem
+                      onSelect={() => {
+                        openModal('export');
+                        close();
+                      }}
+                    >
+                      Export snapshot
+                    </DropdownItem>
+                    <DropdownItem
+                      onSelect={() => {
+                        openIpDashProfileModal();
+                        close();
+                      }}
+                    >
+                      Manage profiles
+                    </DropdownItem>
+                    <DropdownItem
+                      onSelect={() => {
+                        openModal('settings');
+                        close();
+                      }}
+                    >
+                      Settings
+                    </DropdownItem>
+                  </>
+                )}
+              </DropdownMenu>
+            </div>
           </div>
 
           {view === 'ipdash' && (
