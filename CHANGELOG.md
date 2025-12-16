@@ -8,6 +8,11 @@ All notable changes to this project will be documented in this file.
 - Port aware devices can now be configured while adding/editing hardware, including a `Number of ports` field (max 48), data-preserving export, and safety confirmations when shrinking or disabling the feature.
 - New Port Hub workspace sits next to IT Cabinet/IP Dash to list every port-aware device, visualize LAN ports in 24-wide rows, and edit Patch Panel/VLAN/IP/comment metadata per port with persistent storage.
 
+### Improved
+- Device cards across Cabinet and Port Hub share the same compact iconography, clearer LAN indicators, inline comment/edit/delete controls, and consistent confirmation flows.
+- Port Hub editing now keeps Tag/VLAN/IP/Comment inputs on a single row, exposes inline Save/Clear actions (with orange “dirty” and green “Saved” states), and adds Link mode controls that sync and pulse across all selected devices.
+- Version Info honours the running channel and only surfaces releases from the matching stream, while the Docker publish workflow now tags `latest` solely for main releases and `dev_latest` solely for dev to prevent cross-branch upgrades.
+
 ## [1.1.3] - 2025-12-16
 
 ### Added
