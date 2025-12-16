@@ -1000,6 +1000,18 @@ html {
   align-items: flex-end;
 }
 
+@media (max-width: 640px) {
+  .profile-card-actions {
+    flex-direction: row;
+    align-items: stretch;
+  }
+  .profile-card-actions .soft-button,
+  .profile-card-actions .profile-action-btn,
+  .profile-card-actions .profile-use-btn {
+    flex: 1 1 auto;
+  }
+}
+
 .profile-action-btn {
   font-size: 0.7rem !important;
   padding: 0.25rem 0.85rem !important;
@@ -2284,12 +2296,12 @@ html.theme-changing * {
 }
 
 .modal-header-premium {
-  padding-bottom: 0.5rem;
+  padding-bottom: 0.35rem;
   border-bottom: 1px solid color-mix(in srgb, var(--border-subtle) 65%, transparent);
 }
 
-.modal-body-premium {
-  padding-top: 1.0rem;
+.modal-body-premium > .stack {
+  gap: 0.75rem;
 }
 
 .modal-icon-premium {
@@ -2297,6 +2309,11 @@ html.theme-changing * {
               color-mix(in srgb, var(--accent) 16%, var(--panel));
   box-shadow: 0 10px 30px rgba(0,0,0,0.25);
   font-size: 1.1rem;
+}
+
+.modal-close-compact {
+  padding-inline: 0.5rem;
+  padding-block: 0.25rem;
 }
 
 /* Ghost button w modalu (Cancel itp.) */
@@ -2321,61 +2338,44 @@ html.theme-changing * {
   padding-top: 0.75rem;
 }
 
-.export-module-grid {
-  display: grid;
-  gap: 0.75rem;
+.export-module-toggle {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
-@media (min-width: 640px) {
-  .export-module-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-.export-module-card {
+.export-toggle {
   border: 1px solid var(--soft-border);
-  border-radius: 1rem;
-  padding: 0.85rem;
-  display: flex;
-  gap: 0.75rem;
-  align-items: flex-start;
-  background: color-mix(in srgb, var(--panel) 96%, transparent);
-  transition: border-color var(--transition), box-shadow var(--transition), background var(--transition);
-}
-
-.export-module-card input {
-  margin-top: 0.35rem;
-  accent-color: var(--accent);
-}
-
-.export-module-card.active {
-  border-color: var(--accent-outline);
-  box-shadow: var(--shadow-soft);
-  background: color-mix(in srgb, var(--accent-soft) 35%, var(--panel));
-}
-
-.export-module-card.disabled {
-  opacity: 0.6;
-}
-
-.export-module-icon {
-  font-size: 1.4rem;
-}
-
-.export-module-text {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-}
-
-.export-module-title {
+  border-radius: 999px;
+  padding: 0.35rem 0.9rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
   font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: border-color var(--transition), color var(--transition), background var(--transition);
+}
+
+.export-toggle input {
+  display: none;
+}
+
+.export-toggle.active {
+  border-color: var(--accent-outline);
+  background: color-mix(in srgb, var(--accent-soft) 35%, var(--panel));
   color: var(--text-primary);
 }
 
-.export-module-desc {
-  font-size: 0.85rem;
-  color: var(--text-secondary);
+.export-toggle.disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.export-toggle-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
 }
 
 .export-module-note {

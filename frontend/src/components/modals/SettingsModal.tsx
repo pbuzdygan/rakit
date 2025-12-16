@@ -19,11 +19,9 @@ export function SettingsModal(){
     >
       <div className="stack">
         <FormSection
-          //label="Appearance"
-      label="Appearance"
-      title="Theme palette"
-      description="Rakit stays legible in both palettes."
-    >
+          label="Appearance"
+          title="Theme palette"
+        >
       <div className="flex flex-col gap-2">
         <p className="field-helper">
           Current: <span className="font-medium text-textPrim">{theme}</span>
@@ -41,7 +39,8 @@ export function SettingsModal(){
 
         <FormSection label="Session" title="Lock your console">
           <SoftButton
-            variant="ghost"
+            block
+            justify="between"
             onClick={() => {
               sessionStorage.removeItem('pin-ok');
               useAppStore.getState().setPinSession(false);
@@ -49,6 +48,7 @@ export function SettingsModal(){
             }}
           >
             Lock application
+            <span className="text-lg">🔒</span>
           </SoftButton>
         </FormSection>
 

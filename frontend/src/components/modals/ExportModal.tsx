@@ -140,20 +140,19 @@ export function ExportModal() {
       onClose={() => closeModal('export')}
       size="md"
     >
-      <div className="stack gap-4">
+      <div className="stack gap-3">
         <p className="type-body-sm text-textSec">
-          Choose which modules to bundle into a single <strong>.xlsx</strong> file. IP Dash exports follow your current
-          layout, grouping and filters, while IT Cabinet includes the registry plus experimental rack views.
+          Select modules to export into one <strong>.xlsx</strong> file.
         </p>
 
-        <div className="export-module-grid">
+        <div className="export-module-toggle">
           {MODULE_OPTIONS.map((option) => {
             const checked = selectedModules.includes(option.id);
             const disabled = option.id === 'ipdash' && !canExportIpDash;
             return (
               <label
                 key={option.id}
-                className={`export-module-card ${checked ? 'active' : ''} ${disabled ? 'disabled' : ''}`}
+                className={`export-toggle ${checked ? 'active' : ''} ${disabled ? 'disabled' : ''}`}
               >
                 <input
                   type="checkbox"
@@ -161,18 +160,14 @@ export function ExportModal() {
                   disabled={disabled}
                   onChange={() => toggleModule(option.id)}
                 />
-                <div className="export-module-icon">{option.icon}</div>
-                <div className="export-module-text">
-                  <span className="export-module-title">{option.label}</span>
-                  <span className="export-module-desc">{option.description}</span>
-                  {option.id === 'ipdash' && !canExportIpDash && (
-                    <span className="export-module-note">
-                      {encryptionBlocked
-                        ? encryptionMessage
-                        : 'Add an IP Dash profile to enable this module.'}
-                    </span>
-                  )}
-                </div>
+                <span className="export-toggle-label">
+                  {option.icon} {option.label}
+                </span>
+                {option.id === 'ipdash' && !canExportIpDash && (
+                  <span className="export-module-note">
+                    {encryptionBlocked ? encryptionMessage : 'Add an IP Dash profile to enable this module.'}
+                  </span>
+                )}
               </label>
             );
           })}

@@ -414,7 +414,8 @@ export function IpDashProfileModal() {
           <div className="saved-profiles-grid">
             {profiles.map((profile) => {
               const active = profile.id === activeProfileId;
-              const modeLabel = profile.mode === 'direct' ? 'Direct' : profile.mode === 'local-offline' ? 'Local Offline' : 'Proxy';
+              const modeLabel =
+                profile.mode === 'direct' ? 'Direct' : profile.mode === 'local-offline' ? 'Local Offline' : 'Proxy';
               return (
                 <div key={profile.id} className={`profile-card ${active ? 'active' : ''}`}>
                   <div className="profile-card-text">
@@ -436,11 +437,7 @@ export function IpDashProfileModal() {
                     <SoftButton
                       variant="ghost"
                       className="profile-action-btn"
-                      onClick={() =>
-                        editingProfile?.id === profile.id
-                          ? cancelEditing()
-                          : startEdit(profile)
-                      }
+                      onClick={() => (editingProfile?.id === profile.id ? cancelEditing() : startEdit(profile))}
                       disabled={formLocked}
                     >
                       {editingProfile?.id === profile.id ? 'Cancel edit' : 'Edit'}
