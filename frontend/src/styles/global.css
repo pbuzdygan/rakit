@@ -1653,6 +1653,7 @@ html {
   background: color-mix(in srgb, var(--warning) 85%, transparent);
   color: var(--text-on-accent);
   border-color: color-mix(in srgb, var(--warning) 90%, transparent);
+  box-shadow: 0 0 0 0 rgba(255, 149, 0, 0.4);
   animation: savePulse 1.4s ease-in-out infinite;
 }
 
