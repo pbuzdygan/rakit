@@ -60,7 +60,6 @@ export function AddDeviceModal() {
   const parsedPortCount = portAware ? normalizePortValue(numberOfPorts) : null;
   const portCountInvalid = portAware && parsedPortCount == null;
   const awaitingPortConfirmation = disableConfirmationPending || shrinkConfirmation.pending;
-  const disableSubmit = !type.trim() || mutation.isPending || portCountInvalid || awaitingPortConfirmation;
 
   const handlePortAwareChange = (checked: boolean) => {
     if (!checked && editingDevice?.portAware) {
@@ -149,6 +148,8 @@ export function AddDeviceModal() {
       closeModal('addDevice');
     },
   });
+
+  const disableSubmit = !type.trim() || mutation.isPending || portCountInvalid || awaitingPortConfirmation;
 
   const submit = async () => {
     const cabinetId = editingDevice?.cabinetId ?? selectedCabinetId;
