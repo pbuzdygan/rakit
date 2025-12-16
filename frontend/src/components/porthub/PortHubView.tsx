@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient, useQueries } from '@tanstack/rea
 import { Api } from '../../api';
 import { Surface } from '../Surface';
 import { SoftButton } from '../SoftButton';
+import { useAppStore } from '../../store';
+import { IconComment, IconEdit, IconTrash } from '../icons';
 
 type Cabinet = { id: number; name: string };
 
@@ -11,7 +13,9 @@ type PortAwareDevice = {
   cabinetId: number;
   cabinetName: string;
   type: string;
-  model?: string;
+  model?: string | null;
+  comment?: string | null;
+  heightU: number;
   numberOfPorts: number;
 };
 
@@ -33,7 +37,11 @@ export function PortHubView() {
   const [selectedPorts, setSelectedPorts] = useState<Record<number, number | null>>({});
   const [portForms, setPortForms] = useState<Record<number, typeof emptyPortForm>>({});
   const [statusMessages, setStatusMessages] = useState<Record<number, string | null>>({});
+  const [deleteConfirmationId, setDeleteConfirmationId] = useState<number | null>(null);
   const queryClient = useQueryClient();
+  const openCommentModal = useAppStore((s) => s.openCommentModal);
+  const setEditingDevice = useAppStore((s) => s.setEditingDevice);
+  const openModal = useAppStore((s) => s.openModal);
 
   const cabinetsQuery = useQuery({ queryKey: ['cabinets'], queryFn: Api.cabinets.list });
   const cabinets = (cabinetsQuery.data?.cabinets ?? []) as Cabinet[];
@@ -46,6 +54,7 @@ export function PortHubView() {
     setSelectedPorts({});
     setPortForms({});
     setStatusMessages({});
+    setDeleteConfirmationId(null);
   }, [activeCabinetId]);
 
   const filteredDevices = useMemo(() => {
@@ -155,6 +164,60 @@ export function PortHubView() {
     },
   });
 
+  const deleteDevice = useMutation({
+    mutationFn: ({ cabinetId, deviceId }: { cabinetId: number; deviceId: number }) =>
+      Api.devices.remove(cabinetId, deviceId),
+    onSuccess: async (_, vars) => {
+      await queryClient.invalidateQueries({ queryKey: ['porthub-devices'] });
+      await queryClient.invalidateQueries({ queryKey: ['cabinet-devices', vars.cabinetId] });
+      await queryClient.invalidateQueries({ queryKey: ['modules'] });
+      setSelectedDevices((prev) => prev.filter((id) => id !== vars.deviceId));
+      setSelectedPorts((prev) => {
+        const next = { ...prev };
+        delete next[vars.deviceId];
+        return next;
+      });
+      setPortForms((prev) => {
+        const next = { ...prev };
+        delete next[vars.deviceId];
+        return next;
+      });
+      setStatusMessages((prev) => {
+        const next = { ...prev };
+        delete next[vars.deviceId];
+        return next;
+      });
+      setDeleteConfirmationId(null);
+    },
+  });
+
+  const handleCommentDevice = (device: PortAwareDevice) => {
+    setDeleteConfirmationId(null);
+    openCommentModal(device.id, device.cabinetId, device.comment ?? '');
+  };
+
+  const handleEditDevice = (device: PortAwareDevice) => {
+    setDeleteConfirmationId(null);
+    setEditingDevice({
+      id: device.id,
+      cabinetId: device.cabinetId,
+      type: device.type,
+      model: device.model ?? '',
+      heightU: device.heightU,
+      portAware: true,
+      numberOfPorts: device.numberOfPorts ?? null,
+    });
+    openModal('addDevice');
+  };
+
+  const handleRequestDelete = (deviceId: number) => {
+    setDeleteConfirmationId((prev) => (prev === deviceId ? null : deviceId));
+  };
+
+  const handleDeleteDevice = async (device: PortAwareDevice) => {
+    await deleteDevice.mutateAsync({ cabinetId: device.cabinetId, deviceId: device.id });
+  };
+
   const filterButtons: Array<{ id: 'all' | number; label: string }> = [
     { id: 'all', label: 'All Devices' },
     ...cabinets.map((cabinet) => ({ id: cabinet.id, label: cabinet.name })),
@@ -215,15 +278,80 @@ export function PortHubView() {
                   const statusMessage = statusMessages[device.id] ?? null;
                   const deviceSaving =
                     updatePort.isPending && updatePort.variables?.deviceId === device.id;
+                  const deletingThisDevice =
+                    deleteDevice.isPending && deleteDevice.variables?.deviceId === device.id;
                   const saveDisabled = !portSelected || deviceSaving;
                   return (
                     <div key={device.id} className="porthub-device-section">
                       <div className="porthub-device-meta">
-                        <h3>
-                          {device.type}{' '}
-                          <span className="porthub-device-location">in {device.cabinetName}</span>
-                        </h3>
-                        {device.model ? <p className="text-textSec">{device.model}</p> : null}
+                        <div className="porthub-device-head">
+                          <div className="porthub-device-text">
+                            <h3>
+                              {device.type}{' '}
+                              <span className="porthub-device-location">in {device.cabinetName}</span>
+                            </h3>
+                            {device.model ? <p className="text-textSec">{device.model}</p> : null}
+                          </div>
+                          <div className="device-actions device-actions--compact">
+                            {deleteConfirmationId === device.id ? (
+                              <>
+                                <button
+                                  type="button"
+                                  className="device-confirm-remove"
+                                  onClick={() => handleDeleteDevice(device)}
+                                  disabled={
+                                    deleteDevice.isPending && deleteDevice.variables?.deviceId === device.id
+                                  }
+                                >
+                                  {deleteDevice.isPending && deleteDevice.variables?.deviceId === device.id
+                                    ? 'Removing…'
+                                    : 'Confirm'}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="device-cancel-remove"
+                                  onClick={() => setDeleteConfirmationId(null)}
+                                  disabled={deleteDevice.isPending}
+                                >
+                                  Cancel
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  className={`device-comment ${device.comment ? 'active' : ''}`}
+                                  onClick={() => handleCommentDevice(device)}
+                                  aria-label={device.comment ? 'Edit comment' : 'Add comment'}
+                                  title={device.comment ? 'Edit comment' : 'Add comment'}
+                                  disabled={deletingThisDevice}
+                                >
+                                  <IconComment className="device-action-icon" />
+                                </button>
+                                <button
+                                  type="button"
+                                  className="device-comment device-edit"
+                                  onClick={() => handleEditDevice(device)}
+                                  aria-label="Edit device"
+                                  title="Edit device"
+                                  disabled={deletingThisDevice}
+                                >
+                                  <IconEdit className="device-action-icon" />
+                                </button>
+                                <button
+                                  type="button"
+                                  className="device-remove"
+                                  onClick={() => handleRequestDelete(device.id)}
+                                  aria-label="Remove device"
+                                  title="Remove device"
+                                  disabled={deletingThisDevice}
+                                >
+                                  <IconTrash className="device-action-icon" />
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
                       </div>
                       <div className="porthub-port-grid">
                         {Array.from({ length: device.numberOfPorts }, (_, idx) => {

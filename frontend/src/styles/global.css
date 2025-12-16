@@ -1365,7 +1365,18 @@ html {
 
 .device-port-indicator {
   margin-left: 0.4rem;
-  font-size: 0.95rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.08rem;
+  border-radius: 0.45rem;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.device-port-indicator__icon {
+  width: 1.05rem;
+  height: 1.05rem;
 }
 
 .porthub-toolbar {
@@ -1450,9 +1461,21 @@ html {
 .porthub-device-meta {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.35rem;
   border-bottom: 1px dashed var(--border-subtle);
   padding-bottom: 0.75rem;
+}
+
+.porthub-device-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.porthub-device-text {
+  flex: 1;
+  min-width: 0;
 }
 
 .porthub-device-meta h3 {
@@ -1588,13 +1611,27 @@ html {
   border: none;
   background: transparent;
   cursor: pointer;
-  font-size: 1rem;
   line-height: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 0.2rem;
   border-radius: 0.5rem;
+}
+
+.device-action-icon {
+  width: 1.05rem;
+  height: 1.05rem;
+  display: block;
+}
+
+.device-actions--compact {
+  gap: 0.25rem;
+}
+
+.device-actions--compact .device-comment,
+.device-actions--compact .device-remove {
+  padding: 0.15rem;
 }
 
 .device-comment.active {

@@ -15,6 +15,7 @@ import { Api } from '../api';
 import { Surface } from './Surface';
 import { SoftButton } from './SoftButton';
 import { useAppStore } from '../store';
+import { IconComment, IconEdit, IconTrash, IconLanPort } from './icons';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 
 type Cabinet = {
@@ -142,7 +143,7 @@ function RackDevice({
             {device.model ? ` · ${device.model}` : ''}
             {device.portAware ? (
               <span className="device-port-indicator" title="Port aware device" aria-label="Port aware device">
-                🖧
+                <IconLanPort className="device-port-indicator__icon" />
               </span>
             ) : null}
           </span>
@@ -184,7 +185,7 @@ function RackDevice({
                   aria-label={commentActive ? 'Edit comment' : 'Add comment'}
                   title={commentActive ? 'Edit comment' : 'Add comment'}
                 >
-                  💬
+                  <IconComment className="device-action-icon" />
                 </button>
                 <button
                   type="button"
@@ -198,7 +199,7 @@ function RackDevice({
                   aria-label="Edit device"
                   title="Edit device"
                 >
-                  ✎
+                  <IconEdit className="device-action-icon" />
                 </button>
                 <button
                   type="button"
@@ -213,7 +214,7 @@ function RackDevice({
                   title="Remove device"
                   aria-label="Remove device"
                 >
-                  ✕
+                  <IconTrash className="device-action-icon" />
                 </button>
               </>
             )}
