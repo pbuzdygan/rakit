@@ -1011,9 +1011,9 @@ html {
   border-radius: 1rem;
   padding: 0.9rem;
   display: flex;
-  justify-content: space-between;
-  gap: 0.75rem;
-  align-items: flex-start;
+  flex-direction: column;
+  gap: 0.6rem;
+  align-items: stretch;
   background: color-mix(in srgb, var(--panel) 98%, transparent);
 }
 
@@ -1048,15 +1048,17 @@ html {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
-  align-items: flex-end;
+  align-items: flex-start;
   width: 100%;
 }
 
-.profile-action-row {
+.profile-action-row,
+.profile-remove-row {
   display: flex;
   gap: 0.35rem;
-  justify-content: flex-end;
+  justify-content: flex-start;
   width: 100%;
+  flex-wrap: wrap;
 }
 
 .profile-action-btn {
@@ -1080,7 +1082,7 @@ html {
 }
 
 .profile-remove-btn {
-  align-self: flex-end;
+  align-self: flex-start;
 }
 
 @media (max-width: 640px) {
@@ -1097,7 +1099,8 @@ html {
     align-items: stretch;
   }
 
-  .profile-action-row {
+  .profile-action-row,
+  .profile-remove-row {
     justify-content: center;
   }
 
@@ -1106,8 +1109,8 @@ html {
     min-width: 0;
   }
 
-  .profile-remove-btn {
-    width: 100%;
+  .profile-remove-row .soft-button {
+    flex: 1 1 auto;
   }
 }
 .tag-chip {
@@ -1645,6 +1648,8 @@ html {
 }
 
 .mainbar-tab-actions {
+  display: flex;
+  align-items: center;
   flex-shrink: 0;
 }
 
@@ -2358,7 +2363,7 @@ html.theme-changing * {
 
 .modal-title-region {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 0.75rem;
   min-width: 0;
   flex: 1 1 auto;

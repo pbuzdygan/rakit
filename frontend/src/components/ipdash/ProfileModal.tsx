@@ -433,7 +433,7 @@ export function IpDashProfileModal() {
                           closeModal();
                         }}
                       >
-                        {active ? 'Using now' : 'Activate'}
+                        {active ? 'In Use' : 'Activate'}
                       </SoftButton>
                       <SoftButton
                         variant="ghost"
@@ -444,20 +444,32 @@ export function IpDashProfileModal() {
                         {editingProfile?.id === profile.id ? 'Cancel edit' : 'Edit'}
                       </SoftButton>
                     </div>
-                    <SoftButton
-                      variant="danger"
-                      className="profile-action-btn profile-remove-btn"
-                      onClick={() => {
-                        if (confirmRemoveId === profile.id) {
-                          removeProfile.mutate(profile.id);
-                        } else {
-                          setConfirmRemoveId(profile.id);
-                        }
-                      }}
-                      disabled={formLocked || removeProfile.isPending}
-                    >
-                      {confirmRemoveId === profile.id ? 'Confirm' : 'Remove'}
-                    </SoftButton>
+                    <div className="profile-remove-row">
+                      {confirmRemoveId === profile.id && (
+                        <SoftButton
+                          variant="ghost"
+                          className="profile-action-btn"
+                          onClick={() => setConfirmRemoveId(null)}
+                          disabled={formLocked || removeProfile.isPending}
+                        >
+                          Cancel
+                        </SoftButton>
+                      )}
+                      <SoftButton
+                        variant="danger"
+                        className="profile-action-btn profile-remove-btn"
+                        onClick={() => {
+                          if (confirmRemoveId === profile.id) {
+                            removeProfile.mutate(profile.id);
+                          } else {
+                            setConfirmRemoveId(profile.id);
+                          }
+                        }}
+                        disabled={formLocked || removeProfile.isPending}
+                      >
+                        {confirmRemoveId === profile.id ? 'Confirm' : 'Remove'}
+                      </SoftButton>
+                    </div>
                   </div>
                 </div>
               );
