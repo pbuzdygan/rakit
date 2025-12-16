@@ -22,7 +22,7 @@ function save(k: string, v: any) {
   } catch {}
 }
 
-type View = 'cabinet' | 'ipdash';
+type View = 'cabinet' | 'ipdash' | 'porthub';
 type IpDashViewMode = 'table' | 'grid';
 type ConnectionStatus = {
   text: string;
@@ -32,6 +32,7 @@ type ConnectionStatus = {
 const storedView = (() => {
   const value = load<string>('view', 'cabinet');
   if (value === 'ipdash' || value === 'scopes') return 'ipdash';
+  if (value === 'porthub') return 'porthub';
   return 'cabinet';
 })() as View;
 
@@ -41,6 +42,8 @@ type EditingDevice = {
   type: string;
   model?: string | null;
   heightU: number;
+  portAware: boolean;
+  numberOfPorts: number | null;
 };
 
 type State = {

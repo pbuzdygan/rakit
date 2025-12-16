@@ -33,6 +33,8 @@ type Device = {
   heightU: number;
   position: number;
   comment?: string;
+  portAware?: boolean;
+  numberOfPorts?: number | null;
 };
 
 const slotId = (index: number) => `slot-${index}`;
@@ -138,6 +140,11 @@ function RackDevice({
           <span className="device-info">
             {device.type}
             {device.model ? ` · ${device.model}` : ''}
+            {device.portAware ? (
+              <span className="device-port-indicator" title="Port aware device" aria-label="Port aware device">
+                🖧
+              </span>
+            ) : null}
           </span>
           <div className="device-actions">
             {confirmDelete ? (
@@ -347,6 +354,8 @@ export function CabinetView() {
       type: device.type,
       model: device.model ?? '',
       heightU: device.heightU,
+      portAware: Boolean(device.portAware),
+      numberOfPorts: device.numberOfPorts ?? null,
     });
     openModal('addDevice');
   };

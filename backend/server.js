@@ -32,6 +32,7 @@ const LOCAL_OFFLINE_MODE = 'local-offline';
 const ENC_KEY_META_KEY = 'app_enc_key_fingerprint';
 const ENCRYPTION_RESET_MESSAGE =
   'APP_ENC_KEY changed. Restore the previous key or reset encrypted profiles to continue.';
+const MAX_DEVICE_PORTS = 48;
 
 const getMetaValueStmt = db.prepare('SELECT value FROM app_meta WHERE key=?');
 const upsertMetaValueStmt = db.prepare(
@@ -140,6 +141,18 @@ const mapDeviceRow = (row) => ({
   heightU: row.height_u ?? 1,
   position: row.position ?? 1,
   comment: row.comment ?? '',
+  portAware: Boolean(row.port_aware),
+  numberOfPorts: row.number_of_ports ?? null,
+});
+
+const mapPortRow = (row) => ({
+  id: row.id,
+  deviceId: row.device_id,
+  portNumber: row.port_number,
+  patchPanel: row.patch_panel ?? '',
+  vlan: row.vlan ?? '',
+  comment: row.comment ?? '',
+  ipAddress: row.ip_address ?? '',
 });
 
 const listCabinets = () =>
@@ -155,6 +168,33 @@ const listDevicesForCabinet = (cabinetId) =>
     .prepare('SELECT * FROM cabinet_devices WHERE cabinet_id=? ORDER BY position ASC, id ASC')
     .all(cabinetId)
     .map(mapDeviceRow);
+
+const listDevicePorts = (deviceId) =>
+  db
+    .prepare('SELECT * FROM device_ports WHERE device_id=? ORDER BY port_number ASC')
+    .all(deviceId)
+    .map(mapPortRow);
+
+const normalizePortCount = (value) => {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > MAX_DEVICE_PORTS) return null;
+  return parsed;
+};
+
+const createDevicePorts = (deviceId, count, startFrom = 1) => {
+  const insert = db.prepare('INSERT INTO device_ports(device_id, port_number) VALUES (?, ?)');
+  for (let port = startFrom; port <= count; port += 1) {
+    insert.run(deviceId, port);
+  }
+};
+
+const deleteDevicePorts = (deviceId) => {
+  db.prepare('DELETE FROM device_ports WHERE device_id=?').run(deviceId);
+};
+
+const deletePortsAbove = (deviceId, threshold) => {
+  db.prepare('DELETE FROM device_ports WHERE device_id=? AND port_number>?').run(deviceId, threshold);
+};
 
 const isRangeFree = (devices, start, height, ignoreId = null) => {
   const end = start + height - 1;
@@ -515,6 +555,12 @@ const ensureCabinet = (cabinetId, res) => {
   return cabinet;
 };
 
+const ensureDeviceInCabinet = (cabinetId, deviceId, res) => {
+  const row = db.prepare('SELECT * FROM cabinet_devices WHERE id=? AND cabinet_id=?').get(deviceId, cabinetId);
+  if (!row && res) res.status(404).json({ error: 'Device not found' });
+  return row ? mapDeviceRow(row) : null;
+};
+
 app.get('/api/cabinets/:cabinetId/devices', (req,res)=>{
   const { cabinetId } = req.params;
   const cabinet = ensureCabinet(cabinetId, res);
@@ -526,23 +572,43 @@ app.post('/api/cabinets/:cabinetId/devices', (req,res)=>{
   const { cabinetId } = req.params;
   const cabinet = ensureCabinet(cabinetId, res);
   if (!cabinet) return;
-  const { type, model, heightU } = req.body || {};
+  const { type, model, heightU, portAware: portAwareRaw, numberOfPorts } = req.body || {};
   const trimmedType = clampText(type, 60);
   if (!trimmedType) return res.status(400).json({ error: 'Device type required' });
   const h = Number(heightU ?? 1);
   if (!Number.isInteger(h) || h < 1 || h > cabinet.sizeU) {
     return res.status(400).json({ error: 'Invalid heightU' });
   }
+  const portAware = Boolean(portAwareRaw);
+  const normalizedPorts = portAware ? normalizePortCount(numberOfPorts) : null;
+  if (portAware && normalizedPorts == null) {
+    return res.status(400).json({ error: `numberOfPorts must be between 1 and ${MAX_DEVICE_PORTS}` });
+  }
   const devices = listDevicesForCabinet(cabinet.id);
   const position = findFirstAvailablePosition(cabinet, devices, h);
   if (position == null) return res.status(409).json({ error: 'No available space in cabinet' });
-  const info = db
-    .prepare(
-      `INSERT INTO cabinet_devices(cabinet_id, device_type, model, height_u, position)
-       VALUES (?,?,?,?,?)`
-    )
-    .run(cabinet.id, trimmedType, clampText(model, 80) || null, h, position);
-  res.json({ ok: true, device: listDevicesForCabinet(cabinet.id).find((d) => d.id === info.lastInsertRowid) });
+  const createDevice = db.transaction(() => {
+    const info = db
+      .prepare(
+        `INSERT INTO cabinet_devices(cabinet_id, device_type, model, height_u, position, port_aware, number_of_ports)
+         VALUES (?,?,?,?,?,?,?)`
+      )
+      .run(
+        cabinet.id,
+        trimmedType,
+        clampText(model, 80) || null,
+        h,
+        position,
+        portAware ? 1 : 0,
+        portAware ? normalizedPorts : null
+      );
+    if (portAware && normalizedPorts != null) {
+      createDevicePorts(info.lastInsertRowid, normalizedPorts);
+    }
+    return info.lastInsertRowid;
+  });
+  const newDeviceId = createDevice();
+  res.json({ ok: true, device: listDevicesForCabinet(cabinet.id).find((d) => d.id === newDeviceId) });
 });
 
 app.patch('/api/cabinets/:cabinetId/devices/:deviceId', (req,res)=>{
@@ -555,6 +621,10 @@ app.patch('/api/cabinets/:cabinetId/devices/:deviceId', (req,res)=>{
   const payload = req.body || {};
   let newHeight = device.heightU;
   let newPosition = device.position;
+  const prevPortAware = Boolean(device.portAware);
+  const prevNumberOfPorts = device.numberOfPorts ?? null;
+  let nextPortAware = prevPortAware;
+  let nextNumberOfPorts = prevNumberOfPorts;
 
   if ('heightU' in payload) {
     const parsed = Number(payload.heightU);
@@ -575,6 +645,29 @@ app.patch('/api/cabinets/:cabinetId/devices/:deviceId', (req,res)=>{
   }
   if (hasRangeConflict(devices, newPosition, newHeight, device.id)) {
     return res.status(409).json({ error: 'Space already occupied' });
+  }
+  if ('portAware' in payload) {
+    nextPortAware = Boolean(payload.portAware);
+    if (!nextPortAware) {
+      nextNumberOfPorts = null;
+    }
+  }
+  if ('numberOfPorts' in payload) {
+    if (!nextPortAware && !prevPortAware) {
+      return res.status(400).json({ error: 'Enable port aware device before setting numberOfPorts' });
+    }
+    const normalized = normalizePortCount(payload.numberOfPorts);
+    if (normalized == null) {
+      return res
+        .status(400)
+        .json({ error: `numberOfPorts must be between 1 and ${MAX_DEVICE_PORTS}` });
+    }
+    nextNumberOfPorts = normalized;
+  }
+  if (nextPortAware && nextNumberOfPorts == null) {
+    return res
+      .status(400)
+      .json({ error: `numberOfPorts must be provided (1-${MAX_DEVICE_PORTS}) when port aware device is enabled` });
   }
 
   const sets = [];
@@ -601,9 +694,32 @@ app.patch('/api/cabinets/:cabinetId/devices/:deviceId', (req,res)=>{
     sets.push('position=?');
     vals.push(newPosition);
   }
+  if (nextPortAware !== prevPortAware) {
+    sets.push('port_aware=?');
+    vals.push(nextPortAware ? 1 : 0);
+  }
+  if (nextNumberOfPorts !== prevNumberOfPorts) {
+    sets.push('number_of_ports=?');
+    vals.push(nextNumberOfPorts ?? null);
+  }
   if (!sets.length) return res.status(400).json({ error: 'Nothing to update' });
   vals.push(deviceId);
-  db.prepare(`UPDATE cabinet_devices SET ${sets.join(', ')} WHERE id=?`).run(...vals);
+  const syncPorts = db.transaction(() => {
+    db.prepare(`UPDATE cabinet_devices SET ${sets.join(', ')} WHERE id=?`).run(...vals);
+    if (!prevPortAware && nextPortAware && nextNumberOfPorts != null) {
+      deleteDevicePorts(device.id);
+      createDevicePorts(device.id, nextNumberOfPorts);
+    } else if (prevPortAware && !nextPortAware) {
+      deleteDevicePorts(device.id);
+    } else if (prevPortAware && nextPortAware && nextNumberOfPorts != null && prevNumberOfPorts != null) {
+      if (nextNumberOfPorts > prevNumberOfPorts) {
+        createDevicePorts(device.id, nextNumberOfPorts, prevNumberOfPorts + 1);
+      } else if (nextNumberOfPorts < prevNumberOfPorts) {
+        deletePortsAbove(device.id, nextNumberOfPorts);
+      }
+    }
+  });
+  syncPorts();
   res.json({
     ok: true,
     device: listDevicesForCabinet(cabinet.id).find((d) => d.id === Number(deviceId)),
@@ -617,6 +733,81 @@ app.delete('/api/cabinets/:cabinetId/devices/:deviceId', (req,res)=>{
   const info = db.prepare('DELETE FROM cabinet_devices WHERE id=? AND cabinet_id=?').run(deviceId, cabinet.id);
   if (!info.changes) return res.status(404).json({ error: 'Device not found' });
   res.json({ ok: true });
+});
+
+app.get('/api/porthub/devices', (_req,res)=>{
+  const rows = db
+    .prepare(
+      `SELECT d.*, c.name AS cabinet_name
+       FROM cabinet_devices d
+       JOIN cabinets c ON c.id = d.cabinet_id
+       WHERE d.port_aware=1
+       ORDER BY c.name ASC, d.device_type ASC, d.id ASC`
+    )
+    .all();
+  const devices = rows.map((row) => ({
+    ...mapDeviceRow(row),
+    cabinetName: row.cabinet_name ?? '',
+  }));
+  res.json({ devices });
+});
+
+app.get('/api/cabinets/:cabinetId/devices/:deviceId/ports', (req,res)=>{
+  const { cabinetId, deviceId } = req.params;
+  const cabinet = ensureCabinet(cabinetId, res);
+  if (!cabinet) return;
+  const device = ensureDeviceInCabinet(cabinet.id, deviceId, res);
+  if (!device) return;
+  if (!device.portAware) return res.status(400).json({ error: 'Device is not port aware' });
+  res.json({ device, ports: listDevicePorts(device.id) });
+});
+
+app.get('/api/cabinets/:cabinetId/devices/:deviceId/ports/export', (req,res)=>{
+  const { cabinetId, deviceId } = req.params;
+  const cabinet = ensureCabinet(cabinetId, res);
+  if (!cabinet) return;
+  const device = ensureDeviceInCabinet(cabinet.id, deviceId, res);
+  if (!device) return;
+  if (!device.portAware) return res.status(400).json({ error: 'Device is not port aware' });
+  const payload = { device, ports: listDevicePorts(device.id) };
+  const body = JSON.stringify(payload, null, 2);
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Content-Disposition', `attachment; filename=device-${device.id}-ports.json`);
+  res.send(body);
+});
+
+app.patch('/api/cabinets/:cabinetId/devices/:deviceId/ports/:portNumber', (req,res)=>{
+  const { cabinetId, deviceId, portNumber } = req.params;
+  const cabinet = ensureCabinet(cabinetId, res);
+  if (!cabinet) return;
+  const device = ensureDeviceInCabinet(cabinet.id, deviceId, res);
+  if (!device) return;
+  if (!device.portAware || !device.numberOfPorts) {
+    return res.status(400).json({ error: 'Device is not port aware' });
+  }
+  const numericPort = Number(portNumber);
+  if (!Number.isInteger(numericPort) || numericPort < 1 || numericPort > device.numberOfPorts) {
+    return res.status(400).json({ error: 'Invalid port number' });
+  }
+  const payload = req.body || {};
+  const sets = [];
+  const vals = [];
+  const assign = (column, value) => {
+    sets.push(`${column}=?`);
+    vals.push(value);
+  };
+  if ('patchPanel' in payload) assign('patch_panel', clampText(payload.patchPanel, 120) || null);
+  if ('vlan' in payload) assign('vlan', clampText(payload.vlan, 60) || null);
+  if ('comment' in payload) assign('comment', clampText(payload.comment, 400) || null);
+  if ('ipAddress' in payload) assign('ip_address', clampText(payload.ipAddress, 60) || null);
+  if (!sets.length) return res.status(400).json({ error: 'No port fields to update' });
+  vals.push(device.id, numericPort);
+  const info = db
+    .prepare(`UPDATE device_ports SET ${sets.join(', ')} WHERE device_id=? AND port_number=?`)
+    .run(...vals);
+  if (!info.changes) return res.status(404).json({ error: 'Port not found' });
+  const updated = db.prepare('SELECT * FROM device_ports WHERE device_id=? AND port_number=?').get(device.id, numericPort);
+  res.json({ ok: true, port: mapPortRow(updated) });
 });
 app.get('/api/ipdash/profiles', (_req,res)=>{
   res.json({

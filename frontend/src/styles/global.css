@@ -1000,6 +1000,22 @@ html {
   color: var(--error);
 }
 
+.alert-warning {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.text-error {
+  color: var(--error);
+}
+
+.port-warning {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
 .saved-profiles-grid {
   display: grid;
   gap: 0.75rem;
@@ -1347,6 +1363,187 @@ html {
   text-overflow: ellipsis;
 }
 
+.device-port-indicator {
+  margin-left: 0.4rem;
+  font-size: 0.95rem;
+}
+
+.porthub-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.porthub-toolbar-racks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.porthub-shell {
+  display: flex;
+  gap: 1.5rem;
+}
+
+.porthub-sidebar {
+  flex: 0 0 280px;
+  border-right: 1px solid var(--border);
+  padding-right: 1rem;
+}
+
+.porthub-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.porthub-heading {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.porthub-device-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 70vh;
+  overflow-y: auto;
+  padding-right: 0.35rem;
+}
+
+.porthub-device {
+  border-radius: 1rem;
+  border: 1px solid var(--soft-border);
+  background: color-mix(in srgb, var(--panel) 96%, transparent);
+  padding: 0.65rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  text-align: left;
+  transition: border var(--transition), background var(--transition);
+}
+
+.porthub-device .device-title {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.porthub-device.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+.porthub-device .device-type {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.porthub-device .device-model {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.porthub-device .device-ports-count {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.porthub-device-meta {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px dashed var(--border-subtle);
+  padding-bottom: 0.75rem;
+}
+
+.porthub-port-grid {
+  display: grid;
+  grid-template-columns: repeat(24, minmax(34px, 1fr));
+  gap: 0.4rem;
+  padding-bottom: 0.5rem;
+}
+
+.porthub-port {
+  height: 42px;
+  border-radius: 0.6rem;
+  border: 1px solid var(--soft-border);
+  background: color-mix(in srgb, var(--panel) 98%, transparent);
+  font-size: 0.85rem;
+  font-weight: 600;
+  transition: border var(--transition), background var(--transition), color var(--transition);
+}
+
+.porthub-port.has-data {
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.porthub-port.selected {
+  background: var(--accent);
+  color: var(--text-on-accent);
+  border-color: var(--accent);
+}
+
+.porthub-port-form {
+  border: 1px solid var(--soft-border);
+  border-radius: 1.2rem;
+  padding: 1rem;
+  background: color-mix(in srgb, var(--panel) 96%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.porthub-form-grid {
+  display: grid;
+  gap: 0.85rem;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+
+.porthub-form-grid .full-span {
+  grid-column: 1 / -1;
+}
+
+.porthub-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.porthub-empty {
+  min-height: 320px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--soft-border);
+  border-radius: 1.2rem;
+  background: color-mix(in srgb, var(--panel) 95%, transparent);
+}
+
+@media (max-width: 1200px) {
+  .porthub-port-grid {
+    grid-template-columns: repeat(12, minmax(36px, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .porthub-shell {
+    flex-direction: column;
+  }
+  .porthub-sidebar {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    padding-right: 0;
+    padding-bottom: 1rem;
+  }
+}
+
 .device-meta {
   display: flex;
   flex-wrap: wrap;
@@ -1658,6 +1855,56 @@ html {
   color: var(--text-secondary);
   text-align: center;
   font-size: 0.9rem;
+}
+
+.toggle-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  cursor: pointer;
+  user-select: none;
+  position: relative;
+}
+
+.toggle-field input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.toggle-indicator {
+  width: 44px;
+  height: 24px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-secondary) 35%, transparent);
+  position: relative;
+  transition: background var(--transition);
+}
+
+.toggle-indicator::after {
+  content: "";
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  top: 3px;
+  left: 3px;
+  transition: transform var(--transition);
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.2);
+}
+
+.toggle-field input:checked + .toggle-indicator {
+  background: var(--accent);
+}
+
+.toggle-field input:checked + .toggle-indicator::after {
+  transform: translateX(20px);
+}
+
+.toggle-label {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
 }
 
 .feedback-badge {

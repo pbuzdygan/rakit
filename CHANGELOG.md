@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.0] - 2025-12-16
+
+### Added
+- Port aware devices can now be configured while adding/editing hardware, including a `Number of ports` field (max 48), data-preserving export, and safety confirmations when shrinking or disabling the feature.
+- New Port Hub workspace sits next to IT Cabinet/IP Dash to list every port-aware device, visualize LAN ports in 24-wide rows, and edit Patch Panel/VLAN/IP/comment metadata per port with persistent storage.
+
 ## [1.1.3] - 2025-12-16
 
 ### Added

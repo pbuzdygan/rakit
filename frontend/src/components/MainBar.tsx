@@ -8,11 +8,12 @@ import { Surface } from './Surface';
 import { IpDashProfileMenu } from './ipdash/IpDashProfileMenu';
 import { VersionIndicator } from './VersionIndicator';
 
-type ViewId = 'cabinet' | 'ipdash';
+type ViewId = 'cabinet' | 'ipdash' | 'porthub';
 
 const VIEW_TABS: Array<{ id: ViewId; label: string }> = [
   { id: 'cabinet', label: 'IT Cabinet' },
   { id: 'ipdash', label: 'IP Dash' },
+  { id: 'porthub', label: 'Port Hub' },
 ];
 
 const VIEW_COPY: Record<ViewId, { title: string; caption?: string }> = {
@@ -22,6 +23,10 @@ const VIEW_COPY: Record<ViewId, { title: string; caption?: string }> = {
   },
   ipdash: {
     title: 'IP Dash workspace',
+    caption: '',
+  },
+  porthub: {
+    title: 'Port Hub workspace',
     caption: '',
   },
 };

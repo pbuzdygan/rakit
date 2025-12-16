@@ -27,6 +27,29 @@ export const Api = {
     remove: (cabinetId: number, deviceId: number) =>
       api(`/api/cabinets/${cabinetId}/devices/${deviceId}`, { method: 'DELETE' }),
   },
+  devicePorts: {
+    list: (cabinetId: number, deviceId: number) =>
+      api(`/api/cabinets/${cabinetId}/devices/${deviceId}/ports`),
+    update: (cabinetId: number, deviceId: number, portNumber: number, payload: any) =>
+      api(`/api/cabinets/${cabinetId}/devices/${deviceId}/ports/${portNumber}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      }),
+    export: async (cabinetId: number, deviceId: number) => {
+      const res = await fetch(`${BASE}/api/cabinets/${cabinetId}/devices/${deviceId}/ports/export`);
+      if (!res.ok) throw new Error(await res.text());
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `device-${deviceId}-ports.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    },
+  },
+  portHub: {
+    devices: () => api('/api/porthub/devices'),
+  },
   ipdash: {
     profiles: {
       list: () => api('/api/ipdash/profiles'),

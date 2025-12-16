@@ -13,9 +13,46 @@ db.pragma('foreign_keys = ON');
 const schema = fs.readFileSync(new URL('./schema.sql', import.meta.url), 'utf8');
 db.exec(schema);
 
+function ensureColumn(table, column, definition) {
+  const columns = db.prepare(`PRAGMA table_info('${table}')`).all();
+  if (!columns.some((col) => col.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
+
 const profileColumns = db.prepare("PRAGMA table_info('ipdash_profiles')").all();
 if (!profileColumns.some((col) => col.name === 'site_id')) {
   db.exec('ALTER TABLE ipdash_profiles ADD COLUMN site_id TEXT');
+}
+
+ensureColumn('cabinet_devices', 'port_aware', 'INTEGER NOT NULL DEFAULT 0');
+ensureColumn('cabinet_devices', 'number_of_ports', 'INTEGER');
+
+const hasDevicePorts = db
+  .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='device_ports'")
+  .get();
+if (!hasDevicePorts) {
+  db.exec(`
+    CREATE TABLE device_ports (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      device_id INTEGER NOT NULL,
+      port_number INTEGER NOT NULL,
+      patch_panel TEXT,
+      vlan TEXT,
+      comment TEXT,
+      ip_address TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(device_id) REFERENCES cabinet_devices(id) ON DELETE CASCADE,
+      UNIQUE(device_id, port_number)
+    );
+
+    CREATE TRIGGER IF NOT EXISTS trg_device_ports_updated_at
+    AFTER UPDATE ON device_ports
+    BEGIN
+      UPDATE device_ports SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+    END;
+  `);
 }
 
 function seedTable(table, rows, insertSql) {

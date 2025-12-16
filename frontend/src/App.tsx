@@ -8,6 +8,7 @@ import { AddCabinetModal } from './components/modals/AddCabinetModal';
 import { AddDeviceModal } from './components/modals/AddDeviceModal';
 import { CabinetView } from './components/CabinetView';
 import { IpDashView } from './components/ipdash/IpDashView';
+import { PortHubView } from './components/porthub/PortHubView';
 import { IpDashProfileModal } from './components/ipdash/ProfileModal';
 import { CommentModal } from './components/modals/CommentModal';
 import { PwaInstallPrompt } from './components/PwaInstallPrompt';
@@ -39,10 +40,11 @@ export default function App() {
 
   const renderView = useMemo(() => {
     if (view === 'ipdash') return <IpDashView />;
+    if (view === 'porthub') return <PortHubView />;
     return <CabinetView />;
   }, [view]);
 
-  const containerClass = view === 'ipdash' ? 'app-container ipdash-full' : 'app-container';
+  const containerClass = view === 'ipdash' || view === 'porthub' ? 'app-container ipdash-full' : 'app-container';
 
   return (
     <div className="min-h-screen bg-tech">

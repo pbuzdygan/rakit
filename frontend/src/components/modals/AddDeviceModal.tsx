@@ -6,6 +6,8 @@ import { Api } from '../../api';
 import { SoftButton } from '../SoftButton';
 import { FormSection } from '../FormSection';
 
+const MAX_PORTS = 48;
+
 export function AddDeviceModal() {
   const { modals, closeModal, selectedCabinetId, editingDevice, setEditingDevice } = useAppStore();
   const open = modals.addDevice;
@@ -13,23 +15,118 @@ export function AddDeviceModal() {
   const [type, setType] = useState('');
   const [model, setModel] = useState('');
   const [heightU, setHeightU] = useState('1');
+  const [portAware, setPortAware] = useState(false);
+  const [numberOfPorts, setNumberOfPorts] = useState('');
+  const [shrinkConfirmation, setShrinkConfirmation] = useState<{ pending: boolean; value: number | null }>({
+    pending: false,
+    value: null,
+  });
+  const [disableConfirmationPending, setDisableConfirmationPending] = useState(false);
+
+  const normalizePortValue = (value: string) => {
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed)) return null;
+    if (parsed < 1 || parsed > MAX_PORTS) return null;
+    return parsed;
+  };
+  const originalPortCount = editingDevice?.numberOfPorts ?? null;
 
   useEffect(() => {
     if (open && editingDevice) {
       setType(editingDevice.type ?? '');
       setModel(editingDevice.model ?? '');
       setHeightU(String(editingDevice.heightU ?? 1));
+      setPortAware(Boolean(editingDevice.portAware));
+       setNumberOfPorts(editingDevice.numberOfPorts ? String(editingDevice.numberOfPorts) : '');
+       setShrinkConfirmation({ pending: false, value: null });
+       setDisableConfirmationPending(false);
     } else if (open) {
       setType('');
       setModel('');
       setHeightU('1');
+       setPortAware(false);
+       setNumberOfPorts('');
+       setShrinkConfirmation({ pending: false, value: null });
+       setDisableConfirmationPending(false);
     }
   }, [open, editingDevice]);
+
+  useEffect(() => {
+    if (!portAware) {
+      setShrinkConfirmation({ pending: false, value: null });
+    }
+  }, [portAware]);
+
+  const parsedPortCount = portAware ? normalizePortValue(numberOfPorts) : null;
+  const portCountInvalid = portAware && parsedPortCount == null;
+  const awaitingPortConfirmation = disableConfirmationPending || shrinkConfirmation.pending;
+  const disableSubmit = !type.trim() || mutation.isPending || portCountInvalid || awaitingPortConfirmation;
+
+  const handlePortAwareChange = (checked: boolean) => {
+    if (!checked && editingDevice?.portAware) {
+      setPortAware(false);
+      setDisableConfirmationPending(true);
+      return;
+    }
+    setPortAware(checked);
+    setDisableConfirmationPending(false);
+  };
+
+  const handlePortCountInput = (value: string) => {
+    const numeric = Number(value);
+    if (Number.isInteger(numeric) && numeric > MAX_PORTS) {
+      setNumberOfPorts(String(MAX_PORTS));
+    } else {
+      setNumberOfPorts(value);
+    }
+    if (editingDevice?.portAware && originalPortCount) {
+      const normalized = normalizePortValue(value);
+      if (normalized != null && normalized < originalPortCount) {
+        setShrinkConfirmation({ pending: true, value: normalized });
+      } else {
+        setShrinkConfirmation({ pending: false, value: null });
+      }
+    }
+  };
+
+  const confirmDisablePorts = () => {
+    setDisableConfirmationPending(false);
+    setNumberOfPorts('');
+  };
+
+  const cancelDisablePorts = () => {
+    setPortAware(true);
+    setDisableConfirmationPending(false);
+  };
+
+  const confirmShrinkPorts = () => {
+    setShrinkConfirmation({ pending: false, value: null });
+  };
+
+  const cancelShrinkPorts = () => {
+    if (originalPortCount) {
+      setNumberOfPorts(String(originalPortCount));
+    }
+    setShrinkConfirmation({ pending: false, value: null });
+  };
+
+  const handleExportPorts = async () => {
+    if (!editingDevice) return;
+    try {
+      await Api.devicePorts.export(editingDevice.cabinetId, editingDevice.id);
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   const reset = () => {
     setType('');
     setModel('');
     setHeightU('1');
+    setPortAware(false);
+    setNumberOfPorts('');
+    setShrinkConfirmation({ pending: false, value: null });
+    setDisableConfirmationPending(false);
     setEditingDevice(null);
   };
 
@@ -56,10 +153,23 @@ export function AddDeviceModal() {
   const submit = async () => {
     const cabinetId = editingDevice?.cabinetId ?? selectedCabinetId;
     if (!cabinetId || !type.trim()) return;
+    if (portCountInvalid || awaitingPortConfirmation) return;
     const parsedHeight = Math.max(1, Math.round(Number(heightU) || 1));
+    const payload: Record<string, any> = {
+      type: type.trim(),
+      model: model.trim() || undefined,
+      heightU: parsedHeight || 1,
+      portAware,
+    };
+    if (portAware && parsedPortCount != null) {
+      payload.numberOfPorts = parsedPortCount;
+    }
+    if (!portAware) {
+      payload.numberOfPorts = null;
+    }
     await mutation.mutateAsync({
       cabinetId,
-      payload: { type: type.trim(), model: model.trim() || undefined, heightU: parsedHeight || 1 },
+      payload,
     });
   };
 
@@ -112,6 +222,78 @@ export function AddDeviceModal() {
                 />
               </div>
             </FormSection>
+            <FormSection title="Port awareness">
+              <div className="stack-sm">
+                <label className="field-label" htmlFor="device-port-aware">Port aware device</label>
+                <label className="toggle-field" htmlFor="device-port-aware">
+                  <input
+                    id="device-port-aware"
+                    type="checkbox"
+                    checked={portAware}
+                    onChange={(e) => handlePortAwareChange(e.target.checked)}
+                  />
+                  <span className="toggle-indicator" />
+                  <span className="toggle-label">Enable LAN port tracking for this device.</span>
+                </label>
+                <p className="type-caption text-textSec">When enabled, every port can store Patch Panel, VLAN, IP and comment.</p>
+              </div>
+              <div className="stack-sm">
+                <label className="field-label" htmlFor="device-port-count">Number of ports</label>
+                <input
+                  id="device-port-count"
+                  className="input"
+                  type="number"
+                  min={1}
+                  max={MAX_PORTS}
+                  disabled={!portAware}
+                  value={numberOfPorts}
+                  onChange={(e) => handlePortCountInput(e.target.value)}
+                  placeholder="24"
+                />
+                <p className="type-caption text-textSec">Allowed range: 1–{MAX_PORTS} ports.</p>
+                {portCountInvalid && portAware && (
+                  <p className="type-caption text-error">Enter a valid port count between 1 and {MAX_PORTS}.</p>
+                )}
+              </div>
+              {disableConfirmationPending && (
+                <div className="alert alert-warning port-warning">
+                  <p>
+                    Turning off Port aware device will delete all stored port fields. Export them before confirming if
+                    needed.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <SoftButton variant="ghost" disabled={!editingDevice} onClick={handleExportPorts}>
+                      Export ports
+                    </SoftButton>
+                    <SoftButton variant="ghost" onClick={cancelDisablePorts}>
+                      Cancel
+                    </SoftButton>
+                    <SoftButton variant="danger" onClick={confirmDisablePorts}>
+                      Confirm
+                    </SoftButton>
+                  </div>
+                </div>
+              )}
+              {shrinkConfirmation.pending && (
+                <div className="alert alert-warning port-warning">
+                  <p>
+                    Ports above {shrinkConfirmation.value} will be removed and their data lost. Export them before
+                    confirming if you still need those details.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <SoftButton variant="ghost" disabled={!editingDevice} onClick={handleExportPorts}>
+                      Export ports
+                    </SoftButton>
+                    <SoftButton variant="ghost" onClick={cancelShrinkPorts}>
+                      Cancel
+                    </SoftButton>
+                    <SoftButton variant="danger" onClick={confirmShrinkPorts}>
+                      Confirm
+                    </SoftButton>
+                  </div>
+                </div>
+              )}
+            </FormSection>
             <div className="modal-footer-premium flex justify-end gap-3">
               <SoftButton variant="ghost" onClick={handleClose}>
                 Cancel
@@ -119,7 +301,7 @@ export function AddDeviceModal() {
               <button
                 type="button"
                 className="btn px-6"
-                disabled={!type.trim() || mutation.isPending}
+                disabled={disableSubmit}
                 onClick={submit}
               >
                 {mutation.isPending ? 'Saving...' : editingDevice ? 'Save changes' : 'Add device'}

@@ -46,6 +46,8 @@ CREATE TABLE IF NOT EXISTS cabinet_devices (
   model TEXT,
   height_u INTEGER NOT NULL DEFAULT 1,
   position INTEGER NOT NULL DEFAULT 1,
+  port_aware INTEGER NOT NULL DEFAULT 0,
+  number_of_ports INTEGER,
   comment TEXT,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -56,6 +58,26 @@ CREATE TRIGGER IF NOT EXISTS trg_cabinet_devices_updated_at
 AFTER UPDATE ON cabinet_devices
 BEGIN
   UPDATE cabinet_devices SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+END;
+
+CREATE TABLE IF NOT EXISTS device_ports (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  device_id INTEGER NOT NULL,
+  port_number INTEGER NOT NULL,
+  patch_panel TEXT,
+  vlan TEXT,
+  comment TEXT,
+  ip_address TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY(device_id) REFERENCES cabinet_devices(id) ON DELETE CASCADE,
+  UNIQUE(device_id, port_number)
+);
+
+CREATE TRIGGER IF NOT EXISTS trg_device_ports_updated_at
+AFTER UPDATE ON device_ports
+BEGIN
+  UPDATE device_ports SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
 END;
 
 CREATE TABLE IF NOT EXISTS ipdash_profiles (
