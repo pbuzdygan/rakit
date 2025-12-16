@@ -1,6 +1,6 @@
 import type { ButtonHTMLAttributes } from 'react';
 
-type Variant = 'solid' | 'ghost' | 'danger';
+type Variant = 'solid' | 'ghost' | 'danger' | 'warning';
 
 type SoftButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: Variant;
@@ -20,6 +20,8 @@ export function SoftButton({
       ? 'ghost'
       : variant === 'danger'
       ? 'danger'
+      : variant === 'warning'
+      ? 'warning'
       : '';
 
   const classes = [

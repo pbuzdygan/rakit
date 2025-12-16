@@ -589,7 +589,7 @@ export function CabinetView() {
             Add device
           </SoftButton>
           <SoftButton
-            variant={reorderMode ? 'danger' : 'ghost'}
+            variant={reorderMode ? 'warning' : 'ghost'}
             onClick={() => {
               const next = !reorderMode;
               setReorderMode(next);
