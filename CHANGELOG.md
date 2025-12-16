@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.3] - 2025-12-16
+
+### Added
+- Version Awareness now surfaces the current build/channel inside the bar, tracks GitHub releases for both stable and the new dedicated `dev` line, and raises a call-to-action whenever a fresher dev build appears.
+- The PWA install banner now follows Rakit style.
+
+### Improved
+- Rack management on phones now uses a compact list that still shows multi-U spans, so every device stays readable without wasting screen space.
+- Drag-and-drop reordering is clearer thanks to a dedicated toggle that works across form factors and disables conflicting actions until changes are saved.
+- Device cards highlight stored comments, use sharper edit/remove affordances, and keep confirm/cancel prompts aligned with their intent (red delete, neutral cancel) to reduce mistakes.
+
 ## [1.1.2] - 2025-12-01
 
 ### Fixed
