@@ -18,10 +18,18 @@ updates:
       frontend-patches:
         update-types: [patch, minor]
     ignore:
-      # Tailwind 4 changes the PostCSS integration and requires a dedicated
-      # migration. Keep receiving fixes from the supported 3.x line without
-      # opening an automatically unbuildable major-version PR.
+      # These major releases require coordinated framework/config migrations.
+      # Keep receiving patch and minor fixes without opening PRs that mix
+      # incompatible React generations or break the Tailwind PostCSS setup.
       - dependency-name: tailwindcss
+        update-types: [version-update:semver-major]
+      - dependency-name: react
+        update-types: [version-update:semver-major]
+      - dependency-name: react-dom
+        update-types: [version-update:semver-major]
+      - dependency-name: "@types/react"
+        update-types: [version-update:semver-major]
+      - dependency-name: "@types/react-dom"
         update-types: [version-update:semver-major]
 
   - package-ecosystem: docker
