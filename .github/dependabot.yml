@@ -17,6 +17,12 @@ updates:
     groups:
       frontend-patches:
         update-types: [patch, minor]
+    ignore:
+      # Tailwind 4 changes the PostCSS integration and requires a dedicated
+      # migration. Keep receiving fixes from the supported 3.x line without
+      # opening an automatically unbuildable major-version PR.
+      - dependency-name: tailwindcss
+        update-types: [version-update:semver-major]
 
   - package-ecosystem: docker
     directory: /

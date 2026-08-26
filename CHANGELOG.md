@@ -27,6 +27,7 @@ All notable changes to this project will be documented in this file.
 - Added a complete mobile layout for current phone screens, including a drawer-style navigation, touch-friendly controls, compact rack management, card-based IP and audit data, responsive dialogs, and safe-area support.
 - UniFi controller connections verify TLS certificates by default, support an explicit exception for trusted self-signed controllers, and can use private CA certificates supplied to the container.
 - Runtime and release process improvements make the container smaller, run as an unprivileged user, preserve time-zone settings, and provide safer session handling and encrypted UniFi profile secrets.
+- GitHub build and security workflows now use Node 24-compatible action runtimes and keep incompatible major Tailwind upgrades out of automatic dependency updates.
 - PWA updates now wait for confirmation before reloading, installation requirements are explained in the interface, and offline status clearly identifies which functions still require the Rakit server.
 
 ### Bug fixes
