@@ -46,6 +46,7 @@ All notable changes to this project will be documented in this file.
 - Fixed mobile PIN submission so the first tap on Enter logs in instead of only dismissing the software keyboard.
 - Fixed first-launch PWA caching, install prompts missed before PIN login, stale service-worker delivery and automatic reloads that could interrupt unsaved work.
 - Removed automatic demo rack seeding so a new or deliberately emptied database stays empty after restarting Rakit.
+- Fixed Compose configuration so `APP_PIN` and `APP_ENC_KEY` are read explicitly from `.env` instead of being shadowed by example values.
 
 ## [1.2.0] - 2025-12-16
 

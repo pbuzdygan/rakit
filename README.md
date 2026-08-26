@@ -90,8 +90,8 @@ services:
     environment:
       - PORT=8011 #in network_mode host You can set different than default port
       - DB_FILE=/data/rakit.sqlite
-      - APP_PIN=REPLACE_WITH_YOUR_PIN #PIN 4-8 digits
-      - APP_ENC_KEY=REPLACE_WITH_YOUR_KEY
+      - APP_PIN=${APP_PIN:?APP_PIN must be set in .env}
+      - APP_ENC_KEY=${APP_ENC_KEY:?APP_ENC_KEY must be set in .env}
       - APP_SESSION_TTL_MINUTES=480
       - APP_MAX_SESSIONS=256
       - APP_PIN_ATTEMPT_LIMIT=5
@@ -108,6 +108,16 @@ services:
       - NODE_ENV=production
 
 ```
+
+Copy `.env.example` to `.env`, set a 4–8 digit `APP_PIN` and generate `APP_ENC_KEY` before the first start. Compose does not read a variable merely because it exists in `.env`; the Compose service must reference it as `${APP_PIN}`. The supplied Compose files use required interpolation and stop with a clear configuration error if either secret is missing.
+
+```bash
+cp .env.example .env
+openssl rand -base64 32
+docker compose --env-file .env up -d --force-recreate
+```
+
+Paste the generated key and your PIN into `.env` before running the final command. For the local development Compose file, use `docker compose --env-file .env -f local-build-docker-compose.yml up -d --build --force-recreate`.
 
 The runtime process uses UID/GID 1000. Prepare the persistent directory before the first start (and once after upgrading an older root-based installation):
 

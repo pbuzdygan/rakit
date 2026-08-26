@@ -26,16 +26,16 @@ services:
 
 # Environment variables
     environment:
-      - PORT=8011 #in network_mode host You can set different than default port
-      - DB_FILE=/data/rakit.sqlite
-      - APP_PIN=REPLACE_WITH_YOUR_PIN #PIN 4-8 digits
-      - APP_ENC_KEY=REPLACE_WITH_YOUR_KEY #generate with: openssl rand -base64 32
-      - APP_SESSION_TTL_MINUTES=480
-      - APP_MAX_SESSIONS=256
-      - APP_PIN_ATTEMPT_LIMIT=5
-      - APP_PIN_ATTEMPT_WINDOW_MINUTES=15
-      - APP_PIN_BLOCK_MINUTES=15
+      PORT: ${PORT:-8011} #in network_mode host You can set different than default port
+      DB_FILE: ${DB_FILE:-/data/rakit.sqlite}
+      APP_PIN: ${APP_PIN:?APP_PIN must be set in .env (4-8 digits)}
+      APP_ENC_KEY: ${APP_ENC_KEY:?APP_ENC_KEY must be set in .env}
+      APP_SESSION_TTL_MINUTES: ${APP_SESSION_TTL_MINUTES:-480}
+      APP_MAX_SESSIONS: ${APP_MAX_SESSIONS:-256}
+      APP_PIN_ATTEMPT_LIMIT: ${APP_PIN_ATTEMPT_LIMIT:-5}
+      APP_PIN_ATTEMPT_WINDOW_MINUTES: ${APP_PIN_ATTEMPT_WINDOW_MINUTES:-15}
+      APP_PIN_BLOCK_MINUTES: ${APP_PIN_BLOCK_MINUTES:-15}
       # Enable only when Rakit is served through HTTPS.
-      - APP_COOKIE_SECURE=false
-      - TZ=Europe/Warsaw #IANA time zone used by the UI and WOL schedules
-      - NODE_ENV=production
+      APP_COOKIE_SECURE: ${APP_COOKIE_SECURE:-false}
+      TZ: ${TZ:-Europe/Warsaw} #IANA time zone used by the UI and WOL schedules
+      NODE_ENV: production
