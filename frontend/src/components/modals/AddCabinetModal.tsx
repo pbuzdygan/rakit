@@ -14,6 +14,7 @@ export function AddCabinetModal() {
   const [symbol, setSymbol] = useState('');
   const [location, setLocation] = useState('');
   const [sizeU, setSizeU] = useState('42');
+  const [numberingDirection, setNumberingDirection] = useState<'bottom-up' | 'top-down'>('bottom-up');
 
   const mutation = useMutation({
     mutationFn: async (payload: any) => {
@@ -42,6 +43,7 @@ export function AddCabinetModal() {
     setSymbol('');
     setLocation('');
     setSizeU('42');
+    setNumberingDirection('bottom-up');
   };
 
   const submit = async () => {
@@ -52,6 +54,7 @@ export function AddCabinetModal() {
       symbol: symbol.trim() || undefined,
       location: location.trim() || undefined,
       sizeU: Number.isFinite(parsedSize) ? parsedSize : 42,
+      numberingDirection,
     });
   };
 
@@ -70,6 +73,7 @@ export function AddCabinetModal() {
       setSymbol(editingCabinet.symbol ?? '');
       setLocation(editingCabinet.location ?? '');
       setSizeU(String(editingCabinet.sizeU ?? 42));
+      setNumberingDirection(editingCabinet.numberingDirection === 'top-down' ? 'top-down' : 'bottom-up');
     } else if (!editingCabinetId) {
       reset();
     }
@@ -79,7 +83,7 @@ export function AddCabinetModal() {
     <ModalBase
       open={open}
       title={title}
-      icon="🗄️"
+      eyebrow="Racks"
       onClose={onClose}
       size="md"
     >
@@ -92,7 +96,6 @@ export function AddCabinetModal() {
               className="input"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Edge Rack"
             />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -103,7 +106,6 @@ export function AddCabinetModal() {
                 className="input"
                 value={symbol}
                 onChange={(e) => setSymbol(e.target.value)}
-                placeholder="EDGE-A"
               />
             </div>
             <div className="stack-sm">
@@ -126,8 +128,15 @@ export function AddCabinetModal() {
               className="input"
               value={location}
               onChange={(e) => setLocation(e.target.value)}
-              placeholder="Core room A3"
             />
+          </div>
+          <div className="stack-sm">
+            <label className="field-label" htmlFor="cab-numbering">U numbering direction</label>
+            <select id="cab-numbering" className="input" value={numberingDirection} onChange={(event) => setNumberingDirection(event.target.value as 'bottom-up' | 'top-down')}>
+              <option value="bottom-up">Bottom to top — U1 at the bottom</option>
+              <option value="top-down">Top to bottom — U1 at the top</option>
+            </select>
+            <p className="type-caption text-textSec">You can change this later. Existing devices stay in the same physical rack slots and their U labels are recalculated.</p>
           </div>
         </FormSection>
 

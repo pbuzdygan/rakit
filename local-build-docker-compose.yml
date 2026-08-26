@@ -3,13 +3,29 @@ services:
     build: .
     container_name: rakit_dev
     restart: unless-stopped
+    user: "1000:1000"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
     network_mode: host
     environment:
-      - PORT=9011
-      - DB_FILE=/data/rakit_db.sqlite
-      - APP_PIN=REPLACE_WITH_YOUR_PIN
-      - NODE_ENV=production
-      - APP_ENC_KEY=YOUR_ENC_KEY_HERE
+      PORT: ${PORT:-9011}
+      DB_FILE: ${DB_FILE:-/data/rakit_db.sqlite}
+      APP_PIN: ${APP_PIN:?APP_PIN must be set in .env (4-8 digits)}
+      APP_ENC_KEY: ${APP_ENC_KEY:?APP_ENC_KEY must be set in .env}
+      NODE_ENV: production
+      APP_SESSION_TTL_MINUTES: ${APP_SESSION_TTL_MINUTES:-480}
+      APP_MAX_SESSIONS: ${APP_MAX_SESSIONS:-256}
+      APP_PIN_ATTEMPT_LIMIT: ${APP_PIN_ATTEMPT_LIMIT:-5}
+      APP_PIN_ATTEMPT_WINDOW_MINUTES: ${APP_PIN_ATTEMPT_WINDOW_MINUTES:-15}
+      APP_PIN_BLOCK_MINUTES: ${APP_PIN_BLOCK_MINUTES:-15}
+      APP_COOKIE_SECURE: ${APP_COOKIE_SECURE:-false}
+      TZ: ${TZ:-Europe/Warsaw}
     volumes:
       - ./data:/data
 #    ports:

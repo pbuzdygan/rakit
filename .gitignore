@@ -1,0 +1,8 @@
+**/node_modules/
+frontend/dist/
+*.log
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+.env
+.env.local

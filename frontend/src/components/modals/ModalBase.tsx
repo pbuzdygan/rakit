@@ -1,13 +1,14 @@
 import { motion, AnimatePresence } from "framer-motion";
 import type { ReactNode } from "react";
+import { OperationsIcon } from "../OperationsIcon";
 
 type ModalSize = "sm" | "md" | "lg";
 
 type ModalBaseProps = {
   open: boolean;
   title: string;
+  eyebrow?: string;
   subtitle?: string;
-  icon?: ReactNode;
   children: ReactNode;
   onClose: () => void;
   disableClose?: boolean;
@@ -17,67 +18,53 @@ type ModalBaseProps = {
 export function ModalBase({
   open,
   title,
+  eyebrow = "Rakit operations",
   subtitle,
-  icon,
   children,
   onClose,
   disableClose = false,
   size = "md",
 }: ModalBaseProps) {
-  const widthClass =
-    size === "sm" ? "max-w-sm" : size === "lg" ? "max-w-2xl" : "max-w-lg";
-
   return (
     <AnimatePresence>
       {open && (
         <motion.div
-          className="fixed inset-0 z-[900] bg-black/40 backdrop-blur-sm flex items-center justify-center modal-overlay-premium p-4 sm:p-6"
+          className="ops-dialog-backdrop ops-modal-backdrop"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          onMouseDown={() => {
-            if (!disableClose) onClose();
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target && !disableClose) onClose();
           }}
         >
           <motion.div
-            className={`card modal-card-premium w-full ${widthClass}`}
-            onMouseDown={(e) => e.stopPropagation()}
+            className={`ops-dialog ops-modal-dialog ops-modal-dialog--${size}`}
+            role="dialog"
+            aria-modal="true"
+            aria-label={title}
             initial={{ opacity: 0, y: 14, scale: 0.96 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.97 }}
             transition={{ duration: 0.18, ease: [0.2, 0.8, 0.2, 1] }}
           >
-            {/* Header */}
-            <div className="modal-header-premium">
-              <div className="modal-title-region">
-                {icon && (
-                  <div className="shrink-0 h-9 w-9 rounded-2xl flex items-center justify-center modal-icon-premium">
-                    {icon}
-                  </div>
-                )}
-                <div className="stack-sm">
-                  <h2 className="type-title-m leading-snug">
-                    {title}
-                  </h2>
-                  {subtitle && (
-                    <p className="type-body-sm text-textSec">{subtitle}</p>
-                  )}
-                </div>
+            <div className="ops-inspector-header">
+              <div>
+                <span className="ops-eyebrow">{eyebrow}</span>
+                <h2>{title}</h2>
+                {subtitle ? <p>{subtitle}</p> : null}
               </div>
-
               {!disableClose && (
                 <button
                   type="button"
-                  className="btn btn-ghost-premium modal-close-compact"
+                  className="ops-icon-button"
                   onClick={onClose}
+                  aria-label="Close dialog"
                 >
-                  ✕
+                  <OperationsIcon name="close" />
                 </button>
               )}
             </div>
-
-            {/* Body */}
-            <div className="modal-body-premium">{children}</div>
+            <div className="ops-modal-body">{children}</div>
           </motion.div>
         </motion.div>
       )}

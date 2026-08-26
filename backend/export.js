@@ -58,6 +58,7 @@ const collectCabinets = () =>
       symbol: row.symbol ?? '',
       location: row.location ?? '',
       sizeU: row.size_u ?? 42,
+      numberingDirection: row.numbering_direction === 'top-down' ? 'top-down' : 'bottom-up',
     }));
 
 const collectCabinetDevices = () =>
@@ -72,9 +73,48 @@ const collectCabinetDevices = () =>
       heightU: row.height_u ?? 1,
       position: row.position ?? 1,
       comment: row.comment ?? '',
+      portAware: Boolean(row.port_aware),
+      numberOfPorts: row.number_of_ports ?? null,
+      portsPerRow: row.ports_per_row ?? null,
+      managementIp: row.management_ip ?? '',
+      assetTag: row.asset_tag ?? '',
+      status: row.status ?? 'unknown',
+      face: row.face ?? 'front',
+      rackLane: row.rack_lane ?? 'full',
     }));
 
-export function buildExportWorkbook({ includeCabinet = true, ipDashContext = null } = {}) {
+const collectPortConnections = () => db.prepare(`
+  SELECT pc.*, sp.port_number AS source_port, dp.port_number AS destination_port,
+    sc.name AS source_cabinet, dc.name AS destination_cabinet,
+    sd.device_type AS source_type, sd.model AS source_model,
+    dd.device_type AS destination_type, dd.model AS destination_model,
+    ld.device_type AS linked_type, ld.model AS linked_model
+  FROM port_connections pc
+  JOIN device_ports sp ON sp.id=pc.source_port_id
+  JOIN device_ports dp ON dp.id=pc.destination_port_id
+  JOIN cabinet_devices sd ON sd.id=sp.device_id
+  JOIN cabinet_devices dd ON dd.id=dp.device_id
+  JOIN cabinets sc ON sc.id=sd.cabinet_id
+  JOIN cabinets dc ON dc.id=dd.cabinet_id
+  LEFT JOIN cabinet_devices ld ON ld.id=pc.linked_asset_id
+  ORDER BY sc.name, sd.device_type, sp.port_number
+`).all();
+
+const collectWolMachines = () => db.prepare(`
+  SELECT wm.*, d.device_type AS linked_type, d.model AS linked_model, c.name AS linked_cabinet
+  FROM wol_machines wm
+  LEFT JOIN cabinet_devices d ON d.id=wm.linked_device_id
+  LEFT JOIN cabinets c ON c.id=d.cabinet_id
+  ORDER BY wm.name COLLATE NOCASE
+`).all();
+
+const collectWolSchedules = () => db.prepare(`
+  SELECT ws.*, wm.name AS machine_name, wm.mac_address
+  FROM wol_schedules ws JOIN wol_machines wm ON wm.id=ws.machine_id
+  ORDER BY wm.name COLLATE NOCASE, ws.id
+`).all();
+
+export function buildExportWorkbook({ includeCabinet = true, includeConnections = false, includeWol = false, ipDashContext = null } = {}) {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'Rakit';
   workbook.created = new Date();
@@ -82,19 +122,27 @@ export function buildExportWorkbook({ includeCabinet = true, ipDashContext = nul
 
   const cabinets = includeCabinet ? collectCabinets() : [];
   const devices = includeCabinet ? collectCabinetDevices() : [];
+  const connections = includeConnections ? collectPortConnections() : [];
+  const wolMachines = includeWol ? collectWolMachines() : [];
+  const wolSchedules = includeWol ? collectWolSchedules() : [];
   const devicesByCab = new Map();
   devices.forEach((device) => {
     if (!devicesByCab.has(device.cabinetId)) devicesByCab.set(device.cabinetId, []);
     devicesByCab.get(device.cabinetId).push(device);
   });
 
-  if (includeCabinet || ipDashContext) {
+  if (includeCabinet || includeConnections || includeWol || ipDashContext) {
     addCabinetOverview(
       workbook,
       includeCabinet ? cabinets : [],
       includeCabinet ? devices : [],
       Boolean(ipDashContext),
-      includeCabinet
+      includeCabinet,
+      connections,
+      wolMachines,
+      wolSchedules,
+      includeConnections,
+      includeWol
     );
   }
 
@@ -107,7 +155,10 @@ export function buildExportWorkbook({ includeCabinet = true, ipDashContext = nul
     addIpDashSheets(workbook, ipDashContext);
   }
 
-  if (!includeCabinet && !ipDashContext) {
+  if (includeConnections) addPortConnectionSheet(workbook, connections);
+  if (includeWol) addWolSheets(workbook, wolMachines, wolSchedules);
+
+  if (!includeCabinet && !includeConnections && !includeWol && !ipDashContext) {
     const emptySheet = workbook.addWorksheet('Overview');
     emptySheet.addRow(['No modules were selected.']);
   }
@@ -115,7 +166,7 @@ export function buildExportWorkbook({ includeCabinet = true, ipDashContext = nul
   return workbook;
 }
 
-function addCabinetOverview(workbook, cabinets, devices, includeIpDash, includeCabinets = true) {
+function addCabinetOverview(workbook, cabinets, devices, includeIpDash, includeCabinets = true, connections = [], wolMachines = [], wolSchedules = [], includeConnections = false, includeWol = false) {
   const overview = workbook.addWorksheet('Overview');
   overview.columns = [
     { width: 24 },
@@ -138,6 +189,14 @@ function addCabinetOverview(workbook, cabinets, devices, includeIpDash, includeC
     const ipRow = overview.addRow(['IP Dash', 'See sheet', 'Live snapshot', 'Using light palette']);
     styleBody(ipRow);
   }
+  if (includeConnections) {
+    const row = overview.addRow(['Port connections', connections.length, 'Mapped links', 'Source ↔ destination']);
+    styleBody(row);
+  }
+  if (includeWol) {
+    const row = overview.addRow(['Wake on LAN', wolMachines.length, `Schedules: ${wolSchedules.length}`, `Enabled: ${wolMachines.filter((machine) => machine.enabled).length}`]);
+    styleBody(row);
+  }
   overview.mergeCells('A6:D8');
   const hero = overview.getCell('A6');
   hero.value = 'Rakit export\nBranded for light mode reviews.';
@@ -153,6 +212,7 @@ function addCabinetSheets(workbook, cabinets, devicesByCab) {
     { header: 'Symbol', key: 'symbol', width: 14 },
     { header: 'Location', key: 'location', width: 28 },
     { header: 'Size (U)', key: 'sizeU', width: 12 },
+    { header: 'U numbering', key: 'numberingDirection', width: 16 },
     { header: 'Devices', key: 'deviceCount', width: 12 },
   ];
   styleHeader(cabinetSheet.getRow(1));
@@ -171,6 +231,14 @@ function addCabinetSheets(workbook, cabinets, devicesByCab) {
     { header: 'Model', key: 'model', width: 24 },
     { header: 'Height (U)', key: 'heightU', width: 12 },
     { header: 'Start U', key: 'position', width: 10 },
+    { header: 'Rack width', key: 'rackLane', width: 12 },
+    { header: 'Face', key: 'face', width: 10 },
+    { header: 'Port aware', key: 'portAware', width: 12 },
+    { header: 'Ports', key: 'numberOfPorts', width: 10 },
+    { header: 'Ports per row', key: 'portsPerRow', width: 15 },
+    { header: 'Management IP', key: 'managementIp', width: 18 },
+    { header: 'Asset tag', key: 'assetTag', width: 16 },
+    { header: 'Status', key: 'status', width: 12 },
     { header: 'Comment', key: 'comment', width: 40 },
   ];
   styleHeader(deviceSheet.getRow(1));
@@ -182,6 +250,14 @@ function addCabinetSheets(workbook, cabinets, devicesByCab) {
         model: device.model,
         heightU: device.heightU,
         position: device.position,
+        rackLane: device.rackLane,
+        face: device.face,
+        portAware: device.portAware ? 'Yes' : 'No',
+        numberOfPorts: device.numberOfPorts,
+        portsPerRow: device.portsPerRow,
+        managementIp: device.managementIp,
+        assetTag: device.assetTag,
+        status: device.status,
         comment: device.comment,
       });
       styleBody(row);
@@ -204,7 +280,9 @@ function addCabinetExperimentalSheet(workbook, cabinets, devicesByCab) {
   styleHeader(sheet.getRow(1));
   cabinets.forEach((cabinet) => {
     const list = devicesByCab.get(cabinet.id) ?? [];
-    const usedU = list.reduce((sum, device) => sum + (device.heightU || 1), 0);
+    const occupiedUnits = new Set();
+    list.forEach((device) => { for (let unit = device.position; unit < device.position + (device.heightU || 1); unit += 1) occupiedUnits.add(unit); });
+    const usedU = occupiedUnits.size;
     const freeU = Math.max(0, cabinet.sizeU - usedU);
     const usage = cabinet.sizeU > 0 ? Math.round((usedU / cabinet.sizeU) * 100) : 0;
     const tallest = list.length ? list.reduce((prev, next) => (next.heightU > prev.heightU ? next : prev)).type : '—';
@@ -220,6 +298,87 @@ function addCabinetExperimentalSheet(workbook, cabinets, devicesByCab) {
     });
     styleBody(row);
   });
+}
+
+function addPortConnectionSheet(workbook, connections) {
+  const sheet = workbook.addWorksheet('Port connections');
+  sheet.columns = [
+    { header: 'Source cabinet', key: 'sourceCabinet', width: 22 },
+    { header: 'Source device', key: 'sourceDevice', width: 28 },
+    { header: 'Source port', key: 'sourcePort', width: 12 },
+    { header: 'Destination cabinet', key: 'destinationCabinet', width: 22 },
+    { header: 'Destination device', key: 'destinationDevice', width: 28 },
+    { header: 'Destination port', key: 'destinationPort', width: 15 },
+    { header: 'Tag', key: 'tag', width: 18 },
+    { header: 'VLAN', key: 'vlan', width: 12 },
+    { header: 'IP address', key: 'ipAddress', width: 18 },
+    { header: 'Status', key: 'status', width: 14 },
+    { header: 'Linked asset', key: 'linkedAsset', width: 28 },
+    { header: 'Comment', key: 'comment', width: 36 },
+  ];
+  styleHeader(sheet.getRow(1));
+  connections.forEach((connection) => styleBody(sheet.addRow({
+    sourceCabinet: connection.source_cabinet,
+    sourceDevice: [connection.source_type, connection.source_model].filter(Boolean).join(' · '),
+    sourcePort: connection.source_port,
+    destinationCabinet: connection.destination_cabinet,
+    destinationDevice: [connection.destination_type, connection.destination_model].filter(Boolean).join(' · '),
+    destinationPort: connection.destination_port,
+    tag: connection.tag ?? '',
+    vlan: connection.vlan ?? '',
+    ipAddress: connection.ip_address ?? '',
+    status: connection.status ?? 'connected',
+    linkedAsset: [connection.linked_type, connection.linked_model].filter(Boolean).join(' · '),
+    comment: connection.comment ?? '',
+  })));
+}
+
+function addWolSheets(workbook, machines, schedules) {
+  const machinesSheet = workbook.addWorksheet('WOL machines');
+  machinesSheet.columns = [
+    { header: 'Name', key: 'name', width: 26 },
+    { header: 'IP / hostname', key: 'ipAddress', width: 22 },
+    { header: 'MAC address', key: 'macAddress', width: 20 },
+    { header: 'Broadcast', key: 'broadcastAddress', width: 18 },
+    { header: 'UDP port', key: 'port', width: 10 },
+    { header: 'TCP probe', key: 'probePort', width: 11 },
+    { header: 'Status', key: 'status', width: 13 },
+    { header: 'Last seen', key: 'lastSeen', width: 21 },
+    { header: 'Enabled', key: 'enabled', width: 10 },
+    { header: 'Linked rack device', key: 'linkedDevice', width: 32 },
+  ];
+  styleHeader(machinesSheet.getRow(1));
+  machines.forEach((machine) => styleBody(machinesSheet.addRow({
+    name: machine.name,
+    ipAddress: machine.ip_address ?? '',
+    macAddress: machine.mac_address,
+    broadcastAddress: machine.broadcast_address,
+    port: machine.port,
+    probePort: machine.probe_port ?? '',
+    status: machine.status ?? 'unknown',
+    lastSeen: machine.last_seen ?? '',
+    enabled: machine.enabled ? 'yes' : 'no',
+    linkedDevice: [machine.linked_cabinet, machine.linked_type, machine.linked_model].filter(Boolean).join(' · '),
+  })));
+
+  const schedulesSheet = workbook.addWorksheet('WOL schedules');
+  schedulesSheet.columns = [
+    { header: 'Machine', key: 'machine', width: 28 },
+    { header: 'MAC address', key: 'macAddress', width: 20 },
+    { header: 'Schedule name', key: 'name', width: 24 },
+    { header: 'Cron', key: 'cron', width: 20 },
+    { header: 'Enabled', key: 'enabled', width: 10 },
+    { header: 'Last run', key: 'lastRun', width: 21 },
+  ];
+  styleHeader(schedulesSheet.getRow(1));
+  schedules.forEach((schedule) => styleBody(schedulesSheet.addRow({
+    machine: schedule.machine_name,
+    macAddress: schedule.mac_address,
+    name: schedule.name ?? '',
+    cron: schedule.cron,
+    enabled: schedule.enabled ? 'yes' : 'no',
+    lastRun: schedule.last_run_at ?? '',
+  })));
 }
 
 function addIpDashSheets(workbook, context) {

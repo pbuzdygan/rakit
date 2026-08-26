@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Rakit — Overview operations mockup</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell" id="app-shell">
+      <aside class="sidebar" aria-label="Primary navigation">
+        <div class="brand">
+          <img src="../../../frontend/public/favicon-192x192.png" alt="" />
+          <span><strong>RAKIT</strong><small>INFRA MGMT</small></span>
+        </div>
+        <nav>
+          <span class="nav-label">Workspace</span>
+          <button class="nav-item is-active" data-view="Overview"><i class="icon icon-dashboard"></i><span>Overview</span></button>
+          <button class="nav-item" data-view="Racks"><i class="icon icon-rack"></i><span>Racks</span></button>
+          <button class="nav-item" data-view="IP Addressing"><i class="icon icon-network"></i><span>IP Addressing</span></button>
+          <button class="nav-item" data-view="Port Map"><i class="icon icon-ports"></i><span>Port Map</span></button>
+          <button class="nav-item" data-view="Wake on LAN"><i class="icon icon-power"></i><span>Wake on LAN</span></button>
+          <button class="nav-item" data-view="Audit Log"><i class="icon icon-audit"></i><span>Audit Log</span></button>
+        </nav>
+        <footer><span class="status-dot"></span><span>System ready</span></footer>
+      </aside>
+
+      <div class="workspace">
+        <header class="topbar">
+          <button class="icon-button" id="menu-toggle" aria-label="Toggle navigation"><i class="icon icon-menu"></i></button>
+          <div class="breadcrumb"><span>Operations</span><b>/</b><strong>Overview</strong></div>
+          <label class="global-search"><i class="icon icon-search"></i><input aria-label="Search infrastructure" placeholder="Search infrastructure…" /><kbd>/</kbd></label>
+          <div class="top-actions">
+            <button class="icon-button" id="refresh-button" title="Refresh overview"><i class="icon icon-refresh"></i></button>
+            <button class="icon-button" id="theme-toggle" title="Switch theme"><i class="icon icon-sun"></i></button>
+            <button class="icon-button" title="Lock session"><i class="icon icon-lock"></i></button>
+          </div>
+        </header>
+
+        <section class="page-heading">
+          <div>
+            <span class="eyebrow">Operations / Live workspace</span>
+            <h1>Infrastructure overview</h1>
+            <p>Current operational state across racks, addressing, physical links and remote endpoints.</p>
+          </div>
+          <div class="heading-state"><span class="status-dot"></span><div><strong>Operational</strong><small id="updated-label">Updated 12 seconds ago</small></div></div>
+          <div class="heading-actions">
+            <button class="button secondary" data-action="Open quick actions"><i class="icon icon-plus"></i> Quick action</button>
+            <button class="button" data-action="Review attention queue">Review attention</button>
+          </div>
+        </section>
+
+        <main class="dashboard">
+          <section class="metric-strip" aria-label="Infrastructure summary">
+            <button class="metric" data-action="Open Racks"><span class="metric-icon"><i class="icon icon-rack"></i></span><span><small>Racks</small><strong>4</strong><em>53U free capacity</em></span></button>
+            <button class="metric" data-action="Inspect managed devices"><span class="metric-icon"><i class="icon icon-server"></i></span><span><small>Managed devices</small><strong>29</strong><em>26 operational</em></span></button>
+            <button class="metric" data-action="Open Port Map"><span class="metric-icon"><i class="icon icon-ports"></i></span><span><small>Port connections</small><strong>63</strong><em>58 active · 5 planned</em></span></button>
+            <button class="metric metric-warning" data-action="Open IP conflicts"><span class="metric-icon"><i class="icon icon-network"></i></span><span><small>Address conflicts</small><strong>2</strong><em>Requires review</em></span></button>
+            <button class="metric" data-action="Open Wake on LAN"><span class="metric-icon"><i class="icon icon-power"></i></span><span><small>WOL reachable</small><strong>7/9</strong><em>2 probes unavailable</em></span></button>
+          </section>
+
+          <section class="panel health-panel">
+            <header class="panel-head"><div><span class="eyebrow">Live services</span><h2>Infrastructure health</h2></div><span class="state ok"><span class="status-dot"></span>4 services monitored</span></header>
+            <div class="health-table" role="table">
+              <div class="health-row health-row-head" role="row"><span>Service</span><span>State</span><span>Current signal</span><span>Last check</span></div>
+              <button class="health-row" data-action="Inspect UniFi controller"><span class="service"><i class="icon icon-network"></i><b>UniFi controller</b><small>HQ / Default</small></span><span><i class="signal ok"></i>Online</span><span>24 ms · 3 networks</span><time>8 sec</time></button>
+              <button class="health-row" data-action="Inspect rack inventory"><span class="service"><i class="icon icon-rack"></i><b>Rack inventory</b><small>4 cabinets</small></span><span><i class="signal ok"></i>Operational</span><span>29 assets tracked</span><time>12 sec</time></button>
+              <button class="health-row" data-action="Inspect port topology"><span class="service"><i class="icon icon-ports"></i><b>Port topology</b><small>Physical connections</small></span><span><i class="signal warn"></i>Attention</span><span>2 disconnected links</span><time>18 sec</time></button>
+              <button class="health-row" data-action="Inspect WOL probes"><span class="service"><i class="icon icon-power"></i><b>WOL probes</b><small>TCP reachability</small></span><span><i class="signal warn"></i>Degraded</span><span>7 of 9 reachable</span><time>20 sec</time></button>
+            </div>
+          </section>
+
+          <section class="panel attention-panel">
+            <header class="panel-head"><div><span class="eyebrow">Action required</span><h2>Attention queue</h2></div><span class="count">3</span></header>
+            <div class="segmented" aria-label="Attention filter"><button class="is-active" data-filter="all">All</button><button data-filter="critical">Critical</button><button data-filter="warning">Warning</button></div>
+            <div class="attention-list">
+              <button class="attention-row" data-level="critical" data-action="Review IP conflict"><span class="severity critical">Critical</span><strong>Duplicate IP address</strong><small><code>10.20.30.41</code> is reported by two MAC addresses.</small><time>2 min</time></button>
+              <button class="attention-row" data-level="critical" data-action="Inspect offline switch"><span class="severity critical">Critical</span><strong>Core switch offline</strong><small>SW-CORE-01 · Rack Core A · U32</small><time>7 min</time></button>
+              <button class="attention-row" data-level="warning" data-action="Map patch panel ports"><span class="severity warning">Warning</span><strong>Unmapped patch ports</strong><small>PP-OFFICE-01 has 6 ports without a connection.</small><time>1 h</time></button>
+            </div>
+            <footer class="panel-footer"><button class="text-button" data-action="Open Audit Log">View full audit log <span>→</span></button></footer>
+          </section>
+
+          <section class="panel capacity-panel">
+            <header class="panel-head"><div><span class="eyebrow">Physical capacity</span><h2>Rack utilization</h2></div><button class="text-button" data-action="Open Racks">Open racks <span>→</span></button></header>
+            <div class="rack-table">
+              <div class="rack-row rack-row-head"><span>Cabinet</span><span>Devices</span><span>Capacity</span><span>Available</span><span>Status</span></div>
+              <button class="rack-row" data-action="Open Core A"><span><b>Core A</b><small>Server room · CR-A</small></span><span>12</span><span class="capacity"><i><b style="width:74%"></b></i><small>31U / 42U</small></span><strong>11U free</strong><span class="state ok">Online</span></button>
+              <button class="rack-row" data-action="Open Edge B"><span><b>Edge B</b><small>Floor 2 · FD2</small></span><span>8</span><span class="capacity"><i><b style="width:71%"></b></i><small>17U / 24U</small></span><strong>7U free</strong><span class="state ok">Online</span></button>
+              <button class="rack-row" data-action="Open Lab Rack"><span><b>Lab Rack</b><small>Workshop · LAB</small></span><span>6</span><span class="capacity"><i><b style="width:67%"></b></i><small>8U / 12U</small></span><strong>4U free</strong><span class="state warn">Maintenance</span></button>
+              <button class="rack-row" data-action="Open Storage"><span><b>Storage</b><small>Warehouse · WH1</small></span><span>3</span><span class="capacity"><i><b style="width:36%"></b></i><small>10U / 28U</small></span><strong>18U free</strong><span class="state neutral">Planned</span></button>
+            </div>
+          </section>
+
+          <section class="panel activity-panel">
+            <header class="panel-head"><div><span class="eyebrow">Change stream</span><h2>Recent activity</h2></div><button class="icon-button small" data-action="Refresh activity"><i class="icon icon-refresh"></i></button></header>
+            <div class="activity-list">
+              <button data-action="Open port connection 18"><span class="activity-icon ok"><i class="icon icon-ports"></i></span><span><strong>Port connection updated</strong><small>SW-CORE-01 / 17 → PP-OFFICE-01 / 03</small></span><time>4 min</time></button>
+              <button data-action="Open reservation 10.20.30.52"><span class="activity-icon info"><i class="icon icon-network"></i></span><span><strong>IP reservation created</strong><small>10.20.30.52 · printer-finance</small></span><time>19 min</time></button>
+              <button data-action="Open device NVR-02"><span class="activity-icon warn"><i class="icon icon-rack"></i></span><span><strong>Device moved to Rear</strong><small>NVR-02 · Edge B · U08 right</small></span><time>34 min</time></button>
+              <button data-action="Open WOL target OPS-WS-04"><span class="activity-icon ok"><i class="icon icon-power"></i></span><span><strong>Wake packet sent</strong><small>OPS-WS-04 · scheduled operation</small></span><time>1 h</time></button>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+    <div class="toast" id="toast" role="status"></div>
+    <script src="app.js"></script>
+  </body>
+</html>

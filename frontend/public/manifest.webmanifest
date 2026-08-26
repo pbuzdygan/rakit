@@ -1,22 +1,30 @@
 {
+  "id": "/",
   "name": "Rakit Operations Console",
   "short_name": "Rakit",
+  "description": "Self-hosted infrastructure operations console for racks, ports, IP addressing and Wake on LAN.",
+  "lang": "en",
+  "dir": "ltr",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "any",
   "background_color": "#020617",
   "theme_color": "#020617",
-  "description": "Konsola operacyjna Rakit dostępna jak natywna aplikacja.",
+  "categories": ["utilities", "productivity"],
   "icons": [
     {
       "src": "/android-chrome-192x192.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     },
     {
       "src": "/android-chrome-512x512.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     }
   ]
 }
