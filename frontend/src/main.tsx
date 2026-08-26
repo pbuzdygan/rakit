@@ -11,17 +11,36 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   </React.StrictMode>
 );
 
-if ('serviceWorker' in navigator) {
+if ('serviceWorker' in navigator && window.isSecureContext) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch((err) => {
-      console.error('SW registration failed', err);
-    });
+    navigator.serviceWorker
+      .register('/sw.js', { scope: '/', updateViaCache: 'none' })
+      .then((registration) => {
+        const announceUpdate = () => {
+          if (!registration.waiting) return;
+          window.dispatchEvent(
+            new CustomEvent('rakit:pwa-update-ready', { detail: registration })
+          );
+        };
+
+        announceUpdate();
+        registration.addEventListener('updatefound', () => {
+          const worker = registration.installing;
+          worker?.addEventListener('statechange', () => {
+            if (worker.state === 'installed' && navigator.serviceWorker.controller) {
+              announceUpdate();
+            }
+          });
+        });
+
+        window.setInterval(() => registration.update().catch(() => undefined), 60 * 60 * 1000);
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'visible') registration.update().catch(() => undefined);
+        });
+      })
+      .catch((err) => {
+        console.error('SW registration failed', err);
+      });
   });
 
-  let refreshing = false;
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (refreshing) return;
-    refreshing = true;
-    window.location.reload();
-  });
 }

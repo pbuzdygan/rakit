@@ -1801,6 +1801,7 @@ html {
   border-radius: 2rem;
   border: 1px solid var(--soft-border);
   box-shadow: var(--layer-shadow);
+  transition: width .2s ease, border-radius .2s ease;
 }
 
 .section-grid {
@@ -3062,30 +3063,30 @@ html.theme-changing * {
   gap: var(--space-4);
   width: min(calc(100% - 2.5rem), 720px);
   padding: var(--space-4) var(--space-5);
-  border-radius: calc(var(--radius) + 8px);
-  border: 1px solid var(--soft-border-strong);
-  background: color-mix(in srgb, var(--panel) 94%, transparent);
-  box-shadow: var(--layer-shadow);
-  backdrop-filter: blur(16px) saturate(1.35);
-  color: var(--text-primary);
+  border-radius: 4px;
+  border: 1px solid var(--ops-line, var(--soft-border-strong));
+  background: color-mix(in srgb, var(--ops-panel, var(--panel)) 96%, transparent);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .28);
+  backdrop-filter: blur(12px);
+  color: var(--ops-text, var(--text-primary));
   animation: appFadeIn 0.35s ease;
 }
 
 .pwa-install-banner__logo {
   flex-shrink: 0;
-  width: 64px;
-  height: 64px;
-  border-radius: 18px;
-  background: color-mix(in srgb, var(--panel) 85%, transparent);
+  width: 48px;
+  height: 48px;
+  border: 1px solid var(--ops-line, var(--soft-border));
+  border-radius: 2px;
+  background: var(--ops-canvas, var(--panel));
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: var(--shadow-soft);
 }
 
 .pwa-install-banner__logo img {
-  width: 48px;
-  height: 48px;
+  width: 36px;
+  height: 36px;
 }
 
 .pwa-install-banner__content {
@@ -3098,12 +3099,12 @@ html.theme-changing * {
 .pwa-install-banner__title {
   font-size: 0.95rem;
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--ops-text, var(--text-primary));
 }
 
 .pwa-install-banner__message {
   font-size: 0.85rem;
-  color: var(--text-secondary);
+  color: var(--ops-muted, var(--text-secondary));
 }
 
 .pwa-install-banner__actions {
@@ -3114,7 +3115,8 @@ html.theme-changing * {
 }
 
 .pwa-install-banner__action {
-  border-radius: 999px;
+  min-height: 34px;
+  border-radius: 3px;
   border: 1px solid transparent;
   padding: 0.45rem 1.4rem;
   font-size: 0.9rem;
@@ -3123,47 +3125,68 @@ html.theme-changing * {
 }
 
 .pwa-install-banner__action--primary {
-  color: var(--text-on-accent);
-  background: linear-gradient(120deg, var(--accent), var(--accent-strong));
-  box-shadow: var(--shadow-lift);
+  color: #effaff;
+  border-color: #208bc4;
+  background: #147caf;
 }
 
 .pwa-install-banner__action--primary:hover {
-  background: linear-gradient(120deg, var(--accent-strong), var(--accent));
-  box-shadow: var(--shadow-float);
+  background: #198cc3;
 }
 
 .pwa-install-banner__action--ghost {
-  border-color: var(--soft-border);
-  color: var(--text-secondary);
-  background: color-mix(in srgb, var(--panel) 85%, transparent);
+  border-color: var(--ops-line, var(--soft-border));
+  color: var(--ops-muted, var(--text-secondary));
+  background: var(--ops-panel-2, var(--panel));
 }
 
 .pwa-install-banner__action--ghost:hover {
-  color: var(--text-primary);
-  border-color: var(--soft-border-strong);
-  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  color: var(--ops-text, var(--text-primary));
+  border-color: color-mix(in srgb, var(--ops-accent, var(--accent)) 55%, var(--ops-line, var(--soft-border)));
+  background: var(--ops-panel-3, var(--panel));
+}
+
+.pwa-install-banner__action:disabled {
+  opacity: .55;
+  cursor: wait;
+}
+
+.pwa-install-banner--status {
+  width: min(calc(100% - 2.5rem), 620px);
+}
+
+.pwa-install-banner__status-dot {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 auto;
+  background: var(--ops-status-offline, #fb7185);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ops-status-offline, #fb7185) 18%, transparent);
 }
 
 @media (max-width: 640px) {
   .pwa-install-banner {
-    flex-direction: column;
-    gap: var(--space-3);
+    display: grid;
+    grid-template-columns: 42px minmax(0, 1fr);
+    gap: 10px;
   }
 
   .pwa-install-banner__logo {
-    width: 56px;
-    height: 56px;
+    width: 42px;
+    height: 42px;
   }
 
   .pwa-install-banner__actions {
-    flex-direction: column;
+    grid-column: 1 / -1;
     width: 100%;
     margin-left: 0;
   }
 
   .pwa-install-banner__action {
-    width: 100%;
+    flex: 1;
+  }
+
+  .pwa-install-banner--status {
+    grid-template-columns: 12px minmax(0, 1fr);
   }
 }
 

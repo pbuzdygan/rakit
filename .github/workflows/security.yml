@@ -1,0 +1,119 @@
+name: Rakit security checks
+
+on:
+  pull_request:
+  push:
+    branches: [main, dev]
+  schedule:
+    - cron: '23 4 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-and-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24.19.0
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      - name: Install, test and build
+        run: |
+          npm ci --prefix backend --ignore-scripts --no-audit --no-fund
+          npm ci --prefix frontend --ignore-scripts --no-audit --no-fund
+          npm test --prefix backend
+          npm run build --prefix frontend
+
+      - name: Audit npm dependencies
+        run: |
+          npm audit --prefix backend --omit=dev --audit-level=high
+          npm audit --prefix frontend --audit-level=high
+
+      - name: Scan repository for secrets
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: secret
+          skip-dirs: backend/node_modules,frontend/node_modules,frontend/dist,.git
+          format: table
+          exit-code: '1'
+
+      - name: Scan container configuration
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: config
+          scan-ref: .
+          format: table
+          exit-code: '1'
+          severity: CRITICAL,HIGH
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Build current runtime image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          load: true
+          pull: true
+          provenance: false
+          tags: rakit-security-check:${{ github.sha }}
+          build-args: |
+            APP_VERSION=security-${{ github.sha }}
+            APP_REPO=${{ github.repository }}
+            APP_CHANNEL=${{ github.ref_name }}
+            APP_REVISION=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Verify hardened runtime and authenticated API
+        env:
+          TEST_IMAGE: rakit-security-check:${{ github.sha }}
+        run: |
+          test "$(docker image inspect --format '{{.Config.User}}' "${TEST_IMAGE}")" = "node"
+          docker run --rm --entrypoint node "${TEST_IMAGE}" -e \
+            "const fs=require('node:fs'); fs.accessSync('/app',fs.constants.R_OK); try{fs.accessSync('/app',fs.constants.W_OK); process.exit(1)}catch{}"
+          docker run -d --rm --name rakit-security-check-smoke \
+            --read-only --tmpfs /tmp:rw,noexec,nosuid,nodev,size=64m \
+            --cap-drop ALL --security-opt no-new-privileges \
+            -p 127.0.0.1:18012:8011 \
+            -e APP_PIN=246810 \
+            -e APP_ENC_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \
+            "${TEST_IMAGE}"
+          trap 'docker stop rakit-security-check-smoke >/dev/null 2>&1 || true' EXIT
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:18012/health >/dev/null; then break; fi
+            sleep 1
+          done
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18012/api/cabinets)" = "401"
+          curl --fail --silent --cookie-jar /tmp/rakit-security-cookie \
+            --header 'Content-Type: application/json' \
+            --data '{"pin":"246810"}' \
+            http://127.0.0.1:18012/api/pin/verify >/dev/null
+          curl --fail --silent --cookie /tmp/rakit-security-cookie http://127.0.0.1:18012/api/cabinets >/dev/null
+
+      - name: Scan built runtime image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: rakit-security-check:${{ github.sha }}
+          format: table
+          exit-code: '1'
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+          vuln-type: os,library

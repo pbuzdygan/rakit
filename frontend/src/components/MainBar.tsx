@@ -65,8 +65,7 @@ export function MainBar() {
   }
 
   const lockSession = () => {
-    sessionStorage.removeItem('pin-ok');
-    setPinSession(false);
+    void Api.session.logout().finally(() => setPinSession(false));
   };
 
   return (

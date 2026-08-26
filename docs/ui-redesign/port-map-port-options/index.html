@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="pl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>Rakit — Port Map port sizing study</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <svg class="icon-sprite" aria-hidden="true">
+      <symbol id="i-rack" viewBox="0 0 24 24"><rect x="4" y="2.5" width="16" height="19"/><path d="M8 6h8M8 10h8M8 14h8M8 18h8"/></symbol>
+      <symbol id="i-ports" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="6"/><rect x="3" y="14" width="18" height="6"/><path d="M7 7h2M12 7h2M17 7h1M7 17h2M12 17h2M17 17h1"/></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></symbol>
+      <symbol id="i-link" viewBox="0 0 24 24"><path d="m9 15 6-6M7.5 17.5l-1 1a3.5 3.5 0 0 1-5-5l4-4a3.5 3.5 0 0 1 5 0M16.5 6.5l1-1a3.5 3.5 0 0 1 5 5l-4 4a3.5 3.5 0 0 1-5 0"/></symbol>
+      <symbol id="i-server" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="7"/><rect x="3" y="14" width="18" height="7"/><path d="M7 6.5h.01M7 17.5h.01M11 6.5h7M11 17.5h7"/></symbol>
+      <symbol id="i-network" viewBox="0 0 24 24"><circle cx="12" cy="5" r="2.5"/><circle cx="5" cy="18" r="2.5"/><circle cx="19" cy="18" r="2.5"/><path d="M12 7.5v4M5 15.5v-4h14v4"/></symbol>
+      <symbol id="i-activity" viewBox="0 0 24 24"><path d="M3 12h4l2-6 4 12 2-6h6"/></symbol>
+      <symbol id="i-close" viewBox="0 0 24 24"><path d="m5 5 14 14M19 5 5 19"/></symbol>
+    </svg>
+
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="brand"><span>R</span><div><strong>RAKIT</strong><small>Operations Console</small></div></div>
+        <nav>
+          <button><svg><use href="#i-activity" /></svg>Overview</button>
+          <button><svg><use href="#i-rack" /></svg>Racks</button>
+          <button><svg><use href="#i-network" /></svg>IP Addressing</button>
+          <button class="is-active"><svg><use href="#i-ports" /></svg>Port Map</button>
+        </nav>
+        <div class="system"><i></i><span>System ready</span></div>
+      </aside>
+
+      <main>
+        <header class="topbar">
+          <div class="breadcrumbs"><span>Network</span><b>/</b><strong>Port Map study</strong></div>
+          <label class="global-search"><svg><use href="#i-search" /></svg><input placeholder="Search infrastructure…" /><kbd>/</kbd></label>
+          <button class="icon-button" aria-label="Settings">⚙</button>
+        </header>
+
+        <section class="page-head">
+          <div><span>DESIGN STUDY / PORT MAP</span><h1>Readable physical ports</h1><p>Porównanie skalowania portów i informacji operacyjnych urządzenia</p></div>
+          <div class="head-metrics"><div><strong>4</strong><span>Devices</span></div><div><strong>96</strong><span>Ports</span></div><div><strong>3</strong><span>Links</span></div></div>
+        </section>
+
+        <section class="study-bar">
+          <div class="variant-tabs" role="tablist" aria-label="Wariant prezentacji portów">
+            <button class="is-active" data-variant="physical"><b>A</b><span>Large physical</span></button>
+            <button data-variant="banks"><b>B</b><span>Port banks</span></button>
+            <button data-variant="focus"><b>C</b><span>Focus strip</span></button>
+            <button data-variant="legacy"><b>D</b><span>Previous Rakit</span></button>
+          </div>
+          <div class="device-filter" aria-label="Filtr liczby portów">
+            <span>Preview</span>
+            <button class="is-active" data-count="all">All</button>
+            <button data-count="8">8p</button>
+            <button data-count="16">16p</button>
+            <button data-count="24">24p</button>
+            <button data-count="48">48p</button>
+          </div>
+        </section>
+
+        <section class="study-layout">
+          <div class="preview-column">
+            <section class="panel equipment-panel">
+              <header class="panel-head"><div><span>PORT-AWARE DEVICES</span><strong id="previewTitle">Variant A · Large physical ports</strong></div><div class="legend"><i class="free"></i>Free<i class="mapped"></i>Mapped<i class="selected"></i>Selected<i class="paired"></i>Paired</div></header>
+              <div class="device-stack" id="deviceStack"></div>
+              <div class="focus-dock" id="focusDock" hidden></div>
+            </section>
+
+            <section class="panel connections-panel">
+              <header class="panel-head"><div><span>PHYSICAL TOPOLOGY</span><strong>Connections for visible devices</strong></div><label class="table-search"><svg><use href="#i-search" /></svg><input id="connectionSearch" placeholder="Filter connections…" /></label></header>
+              <div class="table-wrap"><table><thead><tr><th>Source</th><th>Destination</th><th>Tag</th><th>VLAN</th><th>Status</th></tr></thead><tbody id="connectionRows"></tbody></table></div>
+            </section>
+          </div>
+
+          <aside class="decision-panel panel">
+            <div class="decision-head"><span>VARIANT NOTES</span><strong id="variantName">A · Large physical</strong></div>
+            <div id="variantNotes"></div>
+            <div class="selected-readout"><span>SELECTED PATH</span><strong id="selectedPath">SW-CORE-01 / 01 ↔ SW-EDGE-16 / 16</strong><small>Kliknij dowolny połączony port, aby podświetlić oba końce.</small></div>
+          </aside>
+        </section>
+      </main>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

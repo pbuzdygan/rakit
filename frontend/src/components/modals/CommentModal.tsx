@@ -38,7 +38,7 @@ export function CommentModal() {
     <ModalBase
       open={open}
       title="Device comment"
-      icon="💬"
+      eyebrow="Device note"
       onClose={closeCommentModal}
       size="sm"
     >

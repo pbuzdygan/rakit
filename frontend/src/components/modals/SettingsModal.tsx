@@ -2,6 +2,8 @@ import { ModalBase } from './ModalBase';
 import { useAppStore } from '../../store';
 import { FormSection } from '../FormSection';
 import { SoftButton } from '../SoftButton';
+import { OperationsIcon } from '../OperationsIcon';
+import { Api } from '../../api';
 
 export function SettingsModal(){
   const { modals, closeModal, theme, setTheme } = useAppStore();
@@ -12,8 +14,8 @@ export function SettingsModal(){
     <ModalBase
       open={open}
       title="Settings"
+      eyebrow="System"
       //subtitle="Tune MOPAY to your preferences."
-      icon="⚙️"
       onClose={() => closeModal("settings")}
       size="md"
     >
@@ -32,7 +34,7 @@ export function SettingsModal(){
               onClick={()=> setTheme(nextTheme)}
             >
               Switch to {nextTheme}
-              <span className="text-lg">{nextTheme === 'dark' ? '🌙' : '☀️'}</span>
+              <OperationsIcon name="settings" className="h-4 w-4" />
             </SoftButton>
           </div>
         </FormSection>
@@ -42,9 +44,10 @@ export function SettingsModal(){
             block
             justify="between"
             onClick={() => {
-              sessionStorage.removeItem('pin-ok');
-              useAppStore.getState().setPinSession(false);
-              closeModal('settings');
+              void Api.session.logout().finally(() => {
+                useAppStore.getState().setPinSession(false);
+                closeModal('settings');
+              });
             }}
           >
             Lock application

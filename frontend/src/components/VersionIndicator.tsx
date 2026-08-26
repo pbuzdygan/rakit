@@ -25,6 +25,7 @@ export function VersionIndicator({ compact = false }: VersionIndicatorProps) {
   const setAppVersion = useAppStore((s) => s.setAppVersion);
   const setLatestVersion = useAppStore((s) => s.setLatestVersion);
   const setReleaseChannel = useAppStore((s) => s.setReleaseChannel);
+  const setTimeZone = useAppStore((s) => s.setTimeZone);
   const [latestReleaseUrl, setLatestReleaseUrl] = useState<string | null>(null);
   const [repoSlug, setRepoSlug] = useState<string | null>(DEFAULT_REPO);
 
@@ -38,6 +39,7 @@ export function VersionIndicator({ compact = false }: VersionIndicatorProps) {
         setAppVersion(versionValue);
         const resolvedChannel = meta?.channel ?? guessChannel(versionValue) ?? DEFAULT_CHANNEL;
         setReleaseChannel(resolvedChannel);
+        if (typeof meta?.timeZone === 'string' && meta.timeZone) setTimeZone(meta.timeZone);
         if (typeof meta?.repo === 'string' && meta.repo.length) {
           setRepoSlug(meta.repo);
         }
@@ -49,10 +51,10 @@ export function VersionIndicator({ compact = false }: VersionIndicatorProps) {
     return () => {
       cancelled = true;
     };
-  }, [setAppVersion, setReleaseChannel]);
+  }, [setAppVersion, setReleaseChannel, setTimeZone]);
 
   useEffect(() => {
-    if (!repoSlug || !releaseChannel) return;
+    if (!repoSlug || !releaseChannel || !version || version.toLowerCase() === 'dev') return;
     let cancelled = false;
 
     const fetchLatest = async () => {
@@ -86,7 +88,7 @@ export function VersionIndicator({ compact = false }: VersionIndicatorProps) {
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [releaseChannel, repoSlug, setLatestVersion]);
+  }, [releaseChannel, repoSlug, setLatestVersion, version]);
 
   const baseClass = ['version-indicator', compact ? 'compact' : ''].filter(Boolean).join(' ');
 

@@ -1127,7 +1127,7 @@ function ResetEncryptedProfilesModal({ open, requiresPin, onClose, onSuccess }: 
   const canSubmit = confirmValue.trim().toUpperCase() === 'RESET' && (!requiresPin || pinValue.trim().length >= 4);
 
   return (
-    <ModalBase open={open} onClose={onClose} title="Reset encrypted profiles" size="sm" disableClose={working}>
+    <ModalBase open={open} onClose={onClose} title="Reset encrypted profiles" eyebrow="IP Addressing" size="sm" disableClose={working}>
       <div className="stack gap-3">
         <p className="type-body-sm text-textSec">
           Resetting removes all controller profiles plus Local Offline scopes and hosts. This cannot be undone.
@@ -1192,7 +1192,7 @@ function TagModal({ editor, value, onSave, onClear, onClose }: TagModalProps) {
   }, [value]);
 
   return (
-    <ModalBase open={Boolean(editor)} title={`Tag ${editor?.rangeLabel ?? ''}`} onClose={onClose} size="sm">
+    <ModalBase open={Boolean(editor)} title={`Tag ${editor?.rangeLabel ?? ''}`} eyebrow="IP Addressing" onClose={onClose} size="sm">
       <div className="stack gap-3">
         <input
           type="text"
@@ -1224,6 +1224,7 @@ type HostModalProps = {
 };
 
 function HostModal({ entry, onClose, onlineSet, offlineMode, onRemoved }: HostModalProps) {
+  const timeZone = useAppStore((state) => state.timeZone);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
@@ -1266,7 +1267,7 @@ function HostModal({ entry, onClose, onlineSet, offlineMode, onRemoved }: HostMo
   };
 
   return (
-    <ModalBase open title={`IP details – ${entry.ip}`} onClose={onClose}>
+    <ModalBase open title={`IP details – ${entry.ip}`} eyebrow="IP Addressing" onClose={onClose}>
       <div className="grid gap-3 grid-cols-2 ipdash-modal-grid">
         <div>
           <p className="label">Name</p>
@@ -1293,7 +1294,7 @@ function HostModal({ entry, onClose, onlineSet, offlineMode, onRemoved }: HostMo
         {!offlineMode && (
           <div>
             <p className="label">Last seen</p>
-            <p>{device?.last_seen ? new Date(device.last_seen * 1000).toLocaleString() : '—'}</p>
+            <p>{device?.last_seen ? new Date(device.last_seen * 1000).toLocaleString(undefined, { timeZone }) : '—'}</p>
           </div>
         )}
       </div>
@@ -1371,7 +1372,7 @@ function AddScopeModal({ open, profileId, onClose, onSuccess }: ScopeModalProps)
   };
 
   return (
-    <ModalBase open={open} onClose={onClose} title="Add IP Scope" size="sm">
+    <ModalBase open={open} onClose={onClose} title="Add IP Scope" eyebrow="IP Addressing" size="sm">
       <div className="stack gap-3">
         <input
           type="text"
@@ -1460,7 +1461,7 @@ function AddManualIpModal({ open, profileId, scopes, onClose, onSuccess, default
   };
 
   return (
-    <ModalBase open={open} onClose={onClose} title="Add IP" size="sm">
+    <ModalBase open={open} onClose={onClose} title="Add IP" eyebrow="IP Addressing" size="sm">
       <div className="stack gap-3">
         <label className="stack-sm">
           <span className="label">Scope</span>

@@ -4,6 +4,7 @@ import { ModalBase } from './ModalBase';
 import { useAppStore } from '../../store';
 import { Api } from '../../api';
 import { SoftButton } from '../SoftButton';
+import { OperationsIcon } from '../OperationsIcon';
 import {
   DEFAULT_IPDASH_FILTERS,
   IPDASH_FILTER_STORAGE_KEY,
@@ -12,7 +13,7 @@ import {
   IPDASH_TAG_STORAGE_KEY,
 } from '../../constants/ipdash';
 
-type ModuleId = 'cabinet' | 'ipdash';
+type ModuleId = 'cabinet' | 'connections' | 'wol' | 'ipdash';
 
 type ExportStatus = 'idle' | 'preparing' | 'success' | 'error';
 
@@ -28,13 +29,25 @@ const MODULE_OPTIONS: Array<{ id: ModuleId; label: string; description: string; 
     id: 'cabinet',
     label: 'IT Cabinet',
     description: 'Cabinets, devices and an experimental rack perspective.',
-    icon: '🗄️',
+    icon: 'RACK',
+  },
+  {
+    id: 'connections',
+    label: 'Port connections',
+    description: 'Source and destination ports, VLANs, tags and linked assets.',
+    icon: 'LINK',
+  },
+  {
+    id: 'wol',
+    label: 'Wake on LAN',
+    description: 'Machines, reachability configuration and wake schedules.',
+    icon: 'WOL',
   },
   {
     id: 'ipdash',
     label: 'IP Dash',
     description: 'Current network view with your filters, grouping and layout.',
-    icon: '🌐',
+    icon: 'IP',
   },
 ];
 
@@ -65,7 +78,7 @@ export function ExportModal() {
   const [working, setWorking] = useState(false);
   const [status, setStatus] = useState<ExportStatus>('idle');
   const [statusMessage, setStatusMessage] = useState('');
-  const [selectedModules, setSelectedModules] = useState<ModuleId[]>(['cabinet']);
+  const [selectedModules, setSelectedModules] = useState<ModuleId[]>(['cabinet', 'connections', 'wol']);
   const [ipDashPrefs, setIpDashPrefs] = useState<IpDashPrefs>(() => loadIpDashPrefs());
   const profilesQuery = useQuery({ queryKey: ['ipdash-profiles'], queryFn: Api.ipdash.profiles.list });
   const encryptionBlocked = Boolean(profilesQuery.data?.encryptionKeyMismatch);
@@ -79,8 +92,17 @@ export function ExportModal() {
     setStatus('idle');
     setStatusMessage('');
     setIpDashPrefs(loadIpDashPrefs());
-    setSelectedModules(canExportIpDash ? ['cabinet', 'ipdash'] : ['cabinet']);
+    setSelectedModules(canExportIpDash ? ['cabinet', 'connections', 'wol', 'ipdash'] : ['cabinet', 'connections', 'wol']);
   }, [open, canExportIpDash]);
+
+  useEffect(() => {
+    if (status !== 'success') return;
+    const timeout = window.setTimeout(() => {
+      setStatus('idle');
+      setStatusMessage('');
+    }, 3500);
+    return () => window.clearTimeout(timeout);
+  }, [status]);
 
   const moduleSummary = useMemo(() => {
     return MODULE_OPTIONS.filter((option) => selectedModules.includes(option.id))
@@ -136,7 +158,7 @@ export function ExportModal() {
     <ModalBase
       open={open}
       title="Export data"
-      icon="📤"
+      eyebrow="Operations"
       onClose={() => closeModal('export')}
       size="md"
     >
@@ -178,8 +200,10 @@ export function ExportModal() {
         )}
 
         {status !== 'idle' && (
-          <div className={`export-status export-status-${status}`}>
-            {statusMessage}
+          <div className={`ops-modal-notice ops-modal-notice--${status}`} role={status === 'error' ? 'alert' : 'status'}>
+            <OperationsIcon name={status === 'success' ? 'check' : status === 'error' ? 'close' : 'activity'} />
+            <span>{statusMessage}</span>
+            <button type="button" onClick={() => { setStatus('idle'); setStatusMessage(''); }} aria-label="Dismiss notification"><OperationsIcon name="close" /></button>
           </div>
         )}
 

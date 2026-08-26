@@ -12,6 +12,7 @@ type ProfileForm = {
   mode: 'proxy' | 'direct' | 'local-offline';
   apiKey: string;
   siteId: string;
+  allowSelfSigned: boolean;
 };
 
 type Profile = {
@@ -21,6 +22,7 @@ type Profile = {
   host: string;
   mode: 'proxy' | 'direct' | 'local-offline';
   siteId?: string | null;
+  allowSelfSigned?: boolean;
 };
 
 type SiteOption = {
@@ -35,6 +37,7 @@ const emptyForm: ProfileForm = {
   mode: 'proxy',
   apiKey: '',
   siteId: '',
+  allowSelfSigned: false,
 };
 
 export function IpDashProfileModal() {
@@ -116,6 +119,7 @@ export function IpDashProfileModal() {
       };
       if (!isLocalOffline) {
         payload.host = form.host.trim();
+        payload.allowSelfSigned = form.allowSelfSigned;
         if (form.siteId.trim()) {
           payload.siteId = form.siteId.trim();
         }
@@ -178,7 +182,12 @@ export function IpDashProfileModal() {
       if (!form.host.trim() || !form.apiKey.trim()) {
         throw new Error('Host and API key required for testing.');
       }
-      return Api.ipdash.profiles.test({ host: form.host.trim(), apiKey: form.apiKey.trim(), mode: form.mode });
+      return Api.ipdash.profiles.test({
+        host: form.host.trim(),
+        apiKey: form.apiKey.trim(),
+        mode: form.mode,
+        allowSelfSigned: form.allowSelfSigned,
+      });
     },
     onSuccess: () => setStatus({ tone: 'success', text: 'Connection successful.' }),
     onError: (err: any) => setStatus({ tone: 'error', text: err?.message || 'Connection test failed.' }),
@@ -195,7 +204,11 @@ export function IpDashProfileModal() {
       if (!form.host.trim() || !form.apiKey.trim()) {
         throw new Error('Enter controller host and API key first.');
       }
-      return Api.ipdash.sites.preview({ host: form.host.trim(), apiKey: form.apiKey.trim() });
+      return Api.ipdash.sites.preview({
+        host: form.host.trim(),
+        apiKey: form.apiKey.trim(),
+        allowSelfSigned: form.allowSelfSigned,
+      });
     },
     onSuccess: (data: any) => {
       const options = Array.isArray(data?.sites) ? (data.sites as SiteOption[]) : [];
@@ -227,6 +240,7 @@ export function IpDashProfileModal() {
       mode: profile.mode,
       apiKey: '',
       siteId: profile.siteId || '',
+      allowSelfSigned: Boolean(profile.allowSelfSigned),
     });
     if (profile.siteId) {
       setSiteOptions((prev) => {
@@ -247,6 +261,7 @@ export function IpDashProfileModal() {
     <ModalBase
       open={open}
       title={editingProfile ? `Edit profile – ${editingProfile.name}` : 'IP Dash profiles'}
+      eyebrow="IP Addressing"
       onClose={closeModal}
       size="lg"
     >
@@ -274,8 +289,8 @@ export function IpDashProfileModal() {
                     APIs are not supported yet.
                   </p>
                   <p className="mb-2">
-                    <strong>Local proxy:</strong> Use this when your UniFi device does not have a trusted SSL certificate.
-                    Requests are proxied through the internal service to avoid HTTPS/CORS issues and certificate warnings.
+                    <strong>Local proxy:</strong> Requests are sent by the Rakit backend. TLS certificates are verified;
+                    enable the self-signed exception below only for a controller you trust.
                   </p>
                   <p className="mb-2">
                     <strong>Direct device:</strong> Use this when your UniFi device has a signed SSL certificate so the app
@@ -344,6 +359,26 @@ export function IpDashProfileModal() {
               }
             />
           </label>
+
+          {!isLocalOffline && (
+            <label
+              className={`ops-console-switch md:col-span-2 ${form.allowSelfSigned ? 'is-enabled' : ''}`}
+              htmlFor="ipdash-allow-self-signed"
+            >
+              <input
+                id="ipdash-allow-self-signed"
+                type="checkbox"
+                checked={form.allowSelfSigned}
+                onChange={(event) => setForm((prev) => ({ ...prev, allowSelfSigned: event.target.checked }))}
+              />
+              <span className="ops-console-switch-control" aria-hidden="true"><span /></span>
+              <span className="ops-console-switch-copy">
+                <strong>Allow self-signed controller certificate</strong>
+                <small>Enable only for a trusted local UniFi controller. Certificate verification stays enabled by default.</small>
+              </span>
+              <em>{form.allowSelfSigned ? 'Exception' : 'Verified TLS'}</em>
+            </label>
+          )}
 
           {!isLocalOffline && (
             <label className="stack-sm md:col-span-2">
@@ -426,36 +461,37 @@ export function IpDashProfileModal() {
                   </div>
                   <div className="profile-card-actions">
                     <div className="profile-action-row">
-                      <SoftButton
-                        className={`profile-use-btn ${active ? 'is-active' : ''}`}
+                      <button
+                        type="button"
+                        className={`ops-button ${active ? 'ops-button--active' : 'ops-button--secondary'}`}
                         onClick={() => {
                           setActiveProfileId(profile.id);
                           closeModal();
                         }}
                       >
                         {active ? 'In Use' : 'Activate'}
-                      </SoftButton>
-                      <SoftButton
-                        variant="ghost"
-                        className="profile-action-btn"
+                      </button>
+                      <button
+                        type="button"
+                        className="ops-button ops-button--secondary"
                         onClick={() => (editingProfile?.id === profile.id ? cancelEditing() : startEdit(profile))}
                         disabled={formLocked}
                       >
                         {editingProfile?.id === profile.id ? 'Cancel edit' : 'Edit'}
-                      </SoftButton>
+                      </button>
                       {confirmRemoveId === profile.id && (
-                        <SoftButton
-                          variant="ghost"
-                          className="profile-action-btn"
+                        <button
+                          type="button"
+                          className="ops-button ops-button--secondary"
                           onClick={() => setConfirmRemoveId(null)}
                           disabled={formLocked || removeProfile.isPending}
                         >
                           Cancel
-                        </SoftButton>
+                        </button>
                       )}
-                      <SoftButton
-                        variant="danger"
-                        className="profile-action-btn profile-remove-btn"
+                      <button
+                        type="button"
+                        className="ops-button ops-button--danger"
                         onClick={() => {
                           if (confirmRemoveId === profile.id) {
                             removeProfile.mutate(profile.id);
@@ -466,7 +502,7 @@ export function IpDashProfileModal() {
                         disabled={formLocked || removeProfile.isPending}
                       >
                         {confirmRemoveId === profile.id ? 'Confirm' : 'Remove'}
-                      </SoftButton>
+                      </button>
                     </div>
                   </div>
                 </div>

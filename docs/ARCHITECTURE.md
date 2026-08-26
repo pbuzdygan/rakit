@@ -13,7 +13,7 @@ Rakit is a self‑hosted, lightweight tool for documenting and exporting IT rack
 
 The app is split into:
 
-- **Backend**: Node.js + Express + SQLite (via better‑sqlite3) + Excel export
+- **Backend**: Node.js 24 + Express + SQLite (via better‑sqlite3) + Excel export
 - **Frontend**: React + TypeScript + Vite + Tailwind CSS, with React Query and Zustand
 
 ---
@@ -43,7 +43,7 @@ The app is split into:
 ## **3. Repository Structure**
 
 `backend/  
-  db.js             # SQLite initialization, schema loading, seeding demo data  
+  db.js             # SQLite initialization, schema loading and migrations
   export.js         # Excel workbook builder (racks + optional IP Dash)  
   ipdashClient.js   # UniFi IP Dash HTTP client + snapshot normalization  
   schema.sql        # Database schema (racks, devices, IP Dash profiles/scopes)  
@@ -78,7 +78,20 @@ Backend is configured via environment variables:
 - `DB_FILE` – path to SQLite database file (default: `/data/rakit_db.sqlite`).
 - `APP_ENC_KEY` – symmetric key used to encrypt UniFi API keys.  
   - When absent, any operation that needs IP Dash encryption is blocked.
+- `APP_SESSION_TTL_MINUTES` – server session lifetime (default: `480`, range: 15–10080 minutes).
+- `APP_MAX_SESSIONS` – maximum number of active in-memory sessions (default: `256`).
+- `APP_PIN_ATTEMPT_LIMIT`, `APP_PIN_ATTEMPT_WINDOW_MINUTES`, `APP_PIN_BLOCK_MINUTES` – PIN brute-force protection.
+- `APP_COOKIE_SECURE` – enables the session cookie `Secure` flag; use it when serving Rakit through HTTPS.
+- `APP_ORIGIN` – optional exact public origin used for mutation origin checks.
+- `TRUST_PROXY` – set to `true` only behind a trusted reverse proxy.
 - `IP_DASH_TIMEOUT_MS` – timeout for IP Dash HTTP requests (default: `15000` ms).
+- `IP_DASH_MAX_RESPONSE_MB` – maximum accepted controller response size (default: `25` MB).
+- `IP_DASH_ALLOW_LOOPBACK` – explicit opt-in for a UniFi controller on the Rakit host; private LAN targets do not require it.
+- `AUDIT_RETENTION_DAYS` – optional audit retention in days; `0`/unset keeps all events.
+- `WOL_PROBE_TIMEOUT_MS` – TCP reachability timeout for WOL targets (default: `1200` ms).
+- `WOL_STATUS_CACHE_MS` – cache lifetime for WOL reachability results (default: `20000` ms).
+- `TZ` – IANA time zone used for UI date/time presentation and WOL cron evaluation (for example `Europe/Warsaw`).
+- `APP_TIME_ZONE` – optional presentation/scheduling override; takes precedence over `TZ`.
 
 ### **4.2 Database Initialization (**backend/db.js**, **backend/schema.sql**)**
 
@@ -91,9 +104,7 @@ Backend is configured via environment variables:
   - `foreign_keys = ON`
 - Loads and executes `schema.sql` at startup.
 - Performs a tiny migration check to ensure `ipdash_profiles.site_id` exists.
-- Seeds initial data when tables are empty:
-  - Two sample cabinets (`EDGE-A`, `LAB-1`).
-  - A few sample devices assigned to those cabinets.
+- Leaves new and deliberately emptied databases without cabinets or devices; production startup never inserts demonstration records.
 
 Schema (`schema.sql`) – main tables:
 
@@ -119,6 +130,7 @@ Schema (`schema.sql`) – main tables:
   - `host` (TEXT NOT NULL) – UniFi controller URL/base
   - `mode` (TEXT NOT NULL, `'proxy' | 'direct' | 'local-offline'`, default `'proxy'`)
   - `site_id` (TEXT, optional, UniFi site id/slug)
+  - `allow_self_signed` (INTEGER, default `0`) – explicit per-profile TLS verification exception
   - `api_key_encrypted` (TEXT NOT NULL) – AES‑GCM encrypted controller API key or local‑offline marker
   - `created_at`, `updated_at`
 - `ipdash_scopes`
@@ -188,7 +200,7 @@ If `APP_ENC_KEY` is changed without resetting, all operations that require the k
 
 Configuration:
 
-- Reads env vars (`PORT`, `APP_PIN`, `APP_ENC_KEY`, `IP_DASH_TIMEOUT_MS`).
+- Reads env vars (`PORT`, `APP_PIN`, `APP_ENC_KEY`, `IP_DASH_TIMEOUT_MS`, `AUDIT_RETENTION_DAYS`, `WOL_PROBE_TIMEOUT_MS`, `WOL_STATUS_CACHE_MS`, `TZ`, `APP_TIME_ZONE`).
 - Validates `APP_PIN` on startup:
   - Must be 4–8 digits.
   - If invalid or missing → process exits (running without PIN is not supported).
@@ -203,14 +215,18 @@ Common helpers:
 
 Middleware:
 
-- `cors({ origin: true, credentials: true })`
-- `express.json()`
-- `morgan('dev')` logging
+- Helmet security headers and a restrictive Content Security Policy.
+- A 2 KB JSON limit for PIN verification and a 64 KB limit for authenticated API calls.
+- Authentication is evaluated before parsing bodies on other API routes.
+- Production-aware Morgan logging.
+- `Cache-Control: no-store` for API responses.
+- Same-origin validation for state-changing API requests.
+- Server-side session authentication for all protected `/api` endpoints.
 
 Static UI:
 
 - `express.static` serving `backend/public`.
-- Catch‑all `GET *` serving `public/index.html` (SPA routing).
+- Catch-all middleware serving `public/index.html` (SPA routing).
 
 #### **4.4.1 Health & PIN**
 
@@ -219,9 +235,11 @@ Static UI:
 - `POST /api/pin/verify`
   - Input: `{ pin: string }`
   - Behavior:
-    - Compares with `APP_PIN` (4–8 digits).
-    - Success → `{ ok: true }`.
-    - Mismatch → `401` with `{ ok: false, error: 'Wrong Pin' }`.
+    - Compares with `APP_PIN` using a timing-safe comparison.
+    - Success creates a random, expiring server session and an `HttpOnly`, `SameSite=Strict` cookie.
+    - Repeated failures are rate limited and temporarily blocked.
+- `GET /api/session` validates the active session.
+- `POST /api/session/logout` revokes it immediately.
 
 #### **4.4.2 Cabinets**
 
@@ -510,30 +528,42 @@ Components under `ipdash/` handle UniFi integration:
 
 - `PinGuard`:
   - Renders an overlay before the main app.
-  - Submits PIN to `/api/pin/verify`.
-  - On success, sets `pinSession` in store and hides itself.
-  - On failure, shows inline error.
+  - Restores or creates an expiring server session through `/api/session` and `/api/pin/verify`.
+  - Distinguishes an unavailable server from an invalid PIN and keeps the mobile form usable above the software keyboard.
 - `PwaInstallPrompt`:
-  - Listens for browser PWA install events.
-  - Presents an install hint/modal to the user.
+  - Listens for browser installation and service-worker update events.
+  - Provides native installation, iOS Home Screen and insecure-HTTP guidance, plus an online/offline state notice.
+- `sw.js`:
+  - Precaches the production app shell, hashed JS/CSS, fonts and branding assets.
+  - Uses explicit user confirmation before activating an update that reloads an open application.
+  - Never intercepts or caches `/api` requests; sessions and infrastructure records remain online-only.
+  - Requires HTTPS except on browser-trusted local development origins such as `localhost`.
 
 ---
 
 ## **7. Security & Operational Notes**
 
 - **Authentication**
-  - Single factor: numeric `APP_PIN` (4–8 digits) checked on backend.
+  - Single factor: numeric `APP_PIN` (4–8 digits) exchanged for an expiring backend session.
+  - All data and mutation APIs require the server session; UI state alone does not grant access.
   - No per‑user accounts; intended for small, trusted setups.
 - **Data at rest**
   - SQLite database file may be volume‑mounted; encryption is applied only to UniFi API keys.
   - Rack/device metadata is stored in plaintext.
+  - Newly opened database files use owner-only permissions (`0600`) and the process umask is `0077`.
 - **Network access**
   - For IP Dash live mode, backend must reach UniFi controller (proxy or direct).
-  - `IP_DASH_TIMEOUT_MS` protects against slow/unreachable controllers.
+  - Controller TLS certificates are verified by default; a self-signed exception is stored per profile.
+  - Controller DNS results are validated and pinned for the request to prevent DNS rebinding.
+  - Loopback, link-local and reserved targets are blocked by default; private LAN ranges remain supported.
+  - Time and response-size limits protect against slow or unexpectedly large controller responses.
+- **Container runtime**
+  - The production image runs as UID/GID 1000, without Linux capabilities and with a read-only root filesystem in the supplied Compose configuration.
+  - Base images and GitHub Actions are digest/SHA pinned; CI builds an SBOM, provenance metadata and blocks fixable high/critical findings.
+  - Locked dependencies are installed with lifecycle scripts disabled in image and CI builds.
 - **Resilience**
   - Backend can run without IP Dash configured; rack functionality remains fully usable.
   - When `APP_ENC_KEY` is misconfigured or changed, only IP Dash operations are blocked;
     racks and exports without IP Dash continue to work.
 
 This document should give enough detail to understand how Rakit is structured, where key behaviors live, and how to extend either the rack module or the IP Dash integration.
-

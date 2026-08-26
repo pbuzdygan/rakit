@@ -22,7 +22,7 @@ function save(k: string, v: any) {
   } catch {}
 }
 
-type View = 'cabinet' | 'ipdash' | 'porthub';
+export type View = 'overview' | 'cabinet' | 'ipdash' | 'porthub' | 'wol' | 'audit';
 type IpDashViewMode = 'table' | 'grid';
 type ConnectionStatus = {
   text: string;
@@ -32,7 +32,7 @@ type ConnectionStatus = {
 const storedView = (() => {
   const value = load<string>('view', 'cabinet');
   if (value === 'ipdash' || value === 'scopes') return 'ipdash';
-  if (value === 'porthub') return 'porthub';
+  if (value === 'overview' || value === 'porthub' || value === 'wol' || value === 'audit') return value;
   return 'cabinet';
 })() as View;
 
@@ -42,13 +42,21 @@ type EditingDevice = {
   type: string;
   model?: string | null;
   heightU: number;
+  position: number;
   portAware: boolean;
   numberOfPorts: number | null;
+  portsPerRow?: number | null;
+  managementIp?: string | null;
+  assetTag?: string | null;
+  status?: string | null;
+  face?: string | null;
+  rackLane?: string | null;
 };
 
 type State = {
   view: View;
   theme: 'light' | 'dark';
+  sidebarCollapsed: boolean;
   pinSession: boolean;
   ipDashViewMode: IpDashViewMode;
   ipDashRefreshToken: number;
@@ -58,6 +66,7 @@ type State = {
   appVersion: string | null;
   latestVersion: string | null;
   releaseChannel: string | null;
+  timeZone: string;
   updateAvailable: boolean;
   modals: {
     export: boolean;
@@ -71,6 +80,7 @@ type State = {
   editingCabinetId: number | null;
   setView: (view: View) => void;
   setTheme: (m: 'light' | 'dark') => void;
+  toggleSidebar: () => void;
   setPinSession: (ok: boolean) => void;
   setIpDashViewMode: (mode: IpDashViewMode) => void;
   triggerIpDashRefresh: () => void;
@@ -88,11 +98,13 @@ type State = {
   setAppVersion: (version: string | null) => void;
   setLatestVersion: (version: string | null) => void;
   setReleaseChannel: (channel: string | null) => void;
+  setTimeZone: (timeZone: string) => void;
 };
 
 export const useAppStore = create<State>((set, get) => ({
   view: storedView,
-  theme: load<'light' | 'dark'>('theme', 'light'),
+  theme: load<'light' | 'dark'>('theme', 'dark'),
+  sidebarCollapsed: load<boolean>('ops-sidebar-collapsed', false),
   pinSession: false,
   ipDashViewMode: load<IpDashViewMode>('ipdash-view-mode', 'table'),
   ipDashRefreshToken: 0,
@@ -102,6 +114,7 @@ export const useAppStore = create<State>((set, get) => ({
   appVersion: null,
   latestVersion: null,
   releaseChannel: DEFAULT_CHANNEL,
+  timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
   updateAvailable: false,
   modals: {
     export: false,
@@ -123,6 +136,13 @@ export const useAppStore = create<State>((set, get) => ({
     save('theme', theme);
     set({ theme });
   },
+
+  toggleSidebar: () =>
+    set((state) => {
+      const sidebarCollapsed = !state.sidebarCollapsed;
+      save('ops-sidebar-collapsed', sidebarCollapsed);
+      return { sidebarCollapsed };
+    }),
 
   setPinSession: (pinSession) => set({ pinSession }),
 
@@ -196,6 +216,7 @@ export const useAppStore = create<State>((set, get) => ({
       if (state.releaseChannel === normalized) return {};
       return { releaseChannel: normalized, latestVersion: null, updateAvailable: false };
     }),
+  setTimeZone: (timeZone) => set({ timeZone: timeZone || 'UTC' }),
 }));
 
 export function compareVersions(a?: string | null, b?: string | null) {

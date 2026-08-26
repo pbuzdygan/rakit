@@ -3,6 +3,15 @@ services:
     image: ghcr.io/pbuzdygan/rakit:latest
     container_name: rakit
     restart: unless-stopped
+    user: "1000:1000"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
 
 # Network mode for Rakit - recommended for using all Rakit API's integrations
     network_mode: host
@@ -10,7 +19,8 @@ services:
 #    ports:
 #      - "8011:8011"
 
-# Persistent data (if backend writes anything to /data)
+# Persistent data. Ensure the directory is writable by UID/GID 1000 before first start:
+# mkdir -p data && sudo chown -R 1000:1000 data
     volumes:
       - ./data:/data
 
@@ -19,5 +29,13 @@ services:
       - PORT=8011 #in network_mode host You can set different than default port
       - DB_FILE=/data/rakit.sqlite
       - APP_PIN=REPLACE_WITH_YOUR_PIN #PIN 4-8 digits
-      - APP_ENC_KEY=REPLACE_WITH_YOUR_KEY
+      - APP_ENC_KEY=REPLACE_WITH_YOUR_KEY #generate with: openssl rand -base64 32
+      - APP_SESSION_TTL_MINUTES=480
+      - APP_MAX_SESSIONS=256
+      - APP_PIN_ATTEMPT_LIMIT=5
+      - APP_PIN_ATTEMPT_WINDOW_MINUTES=15
+      - APP_PIN_BLOCK_MINUTES=15
+      # Enable only when Rakit is served through HTTPS.
+      - APP_COOKIE_SECURE=false
+      - TZ=Europe/Warsaw #IANA time zone used by the UI and WOL schedules
       - NODE_ENV=production

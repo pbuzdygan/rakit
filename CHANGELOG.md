@@ -2,6 +2,51 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0]
+
+### New features
+- New Operations Console interface with a collapsible left navigation, clearer workspace layout, Tabler-based icons, keyboard access to module search ('/')
+- New Overview dashboard with infrastructure counters
+- New rack capabilities: manage multiple cabinets, choose top-down or bottom-up U numbering, show front and rear together, use front/rear placement, and place compatible devices side by side in one rack unit.
+- New Port Map workspace for viewing several devices at once, mapping physical port connections, filtering the connection list, and editing both connection and port metadata from one place.
+- New Wake on LAN workspace for managing machines, checking their status, sending wake packets, and creating optional recurring wake schedules.
+- New Audit Log workspace with filtering, pagination and CSV export.
+- Local IP Addressing now supports offline scopes and reservations alongside UniFi controller data.
+- Rakit can now be installed as a PWA with a complete cached application shell and dedicated guidance for Android, desktop browsers and iOS.
+
+### Improvements
+- Racks now present cabinet capacity, device placement, device status, model and management IP in a denser, more readable operations-focused layout.
+- Rack editing has been streamlined: cabinet actions stay in the cabinet header, device actions stay with the rack, front is always visible, and rear can be shown when needed.
+- Device and cabinet forms, port editing, IP Dash profiles, WOL and export notifications now use one consistent Rakit dialog and control style.
+- Port layouts are more legible, with configurable ports-per-row for devices that use one or two physical port rows.
+- Every workspace search can now be reached with the `/` key; the shortcut focuses the search field for the currently open module.
+- Racks now include a dedicated device search that filters by device name, model, management IP, asset tag or note while keeping occupied rack units visible.
+- Overview and Audit Log now include more useful operation details, such as affected device names, cabinets, models, port endpoints and WOL targets.
+- Destructive actions use an in-place confirmation on the same button, helping prevent accidental removal without browser confirmation pop-ups.
+- Improved readability across the application with larger text, clearer spacing, stronger status colours and better light-theme contrast.
+- Added a complete mobile layout for current phone screens, including a drawer-style navigation, touch-friendly controls, compact rack management, card-based IP and audit data, responsive dialogs, and safe-area support.
+- UniFi controller connections verify TLS certificates by default, support an explicit exception for trusted self-signed controllers, and can use private CA certificates supplied to the container.
+- Runtime and release process improvements make the container smaller, run as an unprivileged user, preserve time-zone settings, and provide safer session handling and encrypted UniFi profile secrets.
+- PWA updates now wait for confirmation before reloading, installation requirements are explained in the interface, and offline status clearly identifies which functions still require the Rakit server.
+
+### Bug fixes
+- Fixed cabinet device updates that did not save changes such as height or status.
+- Fixed rack placement and reordering for left/right half-width devices, including moving devices between sides and sharing a rack unit.
+- Fixed the navigation toggle so a collapsed menu can always be opened again.
+- Fixed front/rear rack placement workflow so a device face can be changed directly while reordering.
+- Fixed inaccurate or stretched port rendering in earlier rack and Port Map layouts.
+- Fixed incomplete audit entries for removed devices and port connections; new entries retain useful identification details.
+- Fixed status colours and controls that were difficult to read in light mode, including active and destructive buttons.
+- Fixed theme transitions so the navigation and workspace change consistently.
+- Fixed container startup permissions after the hardened runtime changes.
+- Fixed the UniFi self-signed certificate setting so it is applied directly to the selected profile connection, including connections made by IP address.
+- Fixed mobile detail panels so port, connection, rack device, WOL and IP information opens as a usable full-height sheet, and ensured rear rack views always appear below the front view on phones.
+- Fixed mobile Racks scrolling so the full front elevation remains reachable when the rear view is hidden.
+- Fixed the mobile PIN screen so focusing the PIN field no longer zooms and leaves the login button outside the visible area.
+- Fixed mobile PIN submission so the first tap on Enter logs in instead of only dismissing the software keyboard.
+- Fixed first-launch PWA caching, install prompts missed before PIN login, stale service-worker delivery and automatic reloads that could interrupt unsaved work.
+- Removed automatic demo rack seeding so a new or deliberately emptied database stays empty after restarting Rakit.
+
 ## [1.2.0] - 2025-12-16
 
 ### Added
