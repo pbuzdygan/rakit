@@ -15,6 +15,7 @@ All notable changes to this project will be documented in this file.
 - Servers entered before enabling Semaphore are retained locally and included when the generated inventory is first reviewed and published.
 - Semaphore API tokens are encrypted at rest and never exposed to the frontend after saving; SSH and privilege-escalation credentials remain in Semaphore Key Store.
 - Inventory publication detects out-of-band changes and requires an explicit review before adopting or replacing a Semaphore inventory.
+- Runtime base packages receive current Debian security fixes during image builds; the full Trivy runtime scan now runs monthly or on demand and reports findings without blocking image publication.
 
 ## [1.3.0]
 

@@ -57,6 +57,7 @@ LABEL org.opencontainers.image.title="Rakit" \
       org.opencontainers.image.revision="${APP_REVISION}"
 
 RUN apt-get update \
+ && apt-get upgrade -y --no-install-recommends \
  && apt-get install -y --no-install-recommends ca-certificates dumb-init libstdc++6 tzdata \
  && rm -rf /var/lib/apt/lists/* \
  && groupadd --gid 1000 node \
