@@ -136,6 +136,7 @@ export const Api = {
     update: (id: number, payload: any) => api(`/api/servers/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
     remove: (id: number, confirmation: string) => api(`/api/servers/${id}`, { method: 'DELETE', body: JSON.stringify({ confirmation }) }),
     checkUpdates: (id: number) => api(`/api/servers/${id}/actions/check-updates`, { method: 'POST', body: '{}' }),
+    checkHealth: (id: number) => api(`/api/servers/${id}/actions/health`, { method: 'POST', body: '{}' }),
     updatePackages: (id: number, confirmation: string) => api(`/api/servers/${id}/actions/update-packages`, { method: 'POST', body: JSON.stringify({ confirmation }) }),
     reboot: (id: number, confirmation: string) => api(`/api/servers/${id}/actions/reboot`, { method: 'POST', body: JSON.stringify({ confirmation }) }),
   },

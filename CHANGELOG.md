@@ -16,6 +16,12 @@ All notable changes to this project will be documented in this file.
 - Semaphore API tokens are encrypted at rest and never exposed to the frontend after saving; SSH and privilege-escalation credentials remain in Semaphore Key Store.
 - Inventory publication detects out-of-band changes and requires an explicit review before adopting or replacing a Semaphore inventory.
 - Runtime base packages receive current Debian security fixes during image builds; the full Trivy runtime scan now runs monthly or on demand and reports findings without blocking image publication.
+- Semaphore tasks launched from Rakit are reconciled in the backend even when the Servers screen is closed, and unfinished actions resume visible polling when the inspector is reopened.
+- Server health checks can now be launched from Rakit; successful health or update checks set the host online and retain kernel and uptime facts.
+
+### Bug fixes
+- Fixed successful Semaphore tasks remaining indefinitely in Running when the user navigated away before completion.
+- Fixed update results being missed when Semaphore wraps the `RAKIT_RESULT_V1` JSON across multiple output lines.
 
 ## [1.3.0]
 

@@ -60,6 +60,12 @@ export function ServersView() {
   const detailQuery = useQuery({ queryKey: ['server', selectedId], queryFn: () => Api.servers.get(selectedId!), enabled: Boolean(selectedId), refetchInterval: activeActionId ? 5000 : false });
   const actions = (detailQuery.data?.actions ?? []) as ServerAction[];
 
+  useEffect(() => {
+    if (activeActionId) return;
+    const unfinished = actions.find((action) => ['submitting', 'queued', 'running', 'unknown'].includes(action.status));
+    if (unfinished) setActiveActionId(unfinished.id);
+  }, [activeActionId, actions]);
+
   const visible = useMemo(() => {
     const query = filter.trim().toLowerCase();
     return servers.filter((server) => {
@@ -89,8 +95,9 @@ export function ServersView() {
     onError: (reason: Error) => { setError(readApiError(reason)); void refreshAll(); },
   });
   const actionMutation = useMutation({
-    mutationFn: ({ server, action, confirmation }: { server: Server; action: 'check' | 'update' | 'reboot'; confirmation?: string }) => {
+    mutationFn: ({ server, action, confirmation }: { server: Server; action: 'check' | 'health' | 'update' | 'reboot'; confirmation?: string }) => {
       if (action === 'check') return Api.servers.checkUpdates(server.id);
+      if (action === 'health') return Api.servers.checkHealth(server.id);
       if (action === 'update') return Api.servers.updatePackages(server.id, confirmation || '');
       return Api.servers.reboot(server.id, confirmation || '');
     },
@@ -165,7 +172,7 @@ export function ServersView() {
         </div>
       </section>
 
-      {selected ? <ServerInspector server={selected} profile={profile} actions={actions} busy={actionMutation.isPending || Boolean(activeActionId)} timeZone={timeZone} onClose={() => setSelectedId(null)} onEdit={() => setServerModal({ open: true, server: selected })} onCheck={() => actionMutation.mutate({ server: selected, action: 'check' })} onConfirm={setConfirmAction} /> : null}
+      {selected ? <ServerInspector server={selected} profile={profile} actions={actions} busy={actionMutation.isPending || Boolean(activeActionId)} timeZone={timeZone} onClose={() => setSelectedId(null)} onEdit={() => setServerModal({ open: true, server: selected })} onCheck={() => actionMutation.mutate({ server: selected, action: 'check' })} onHealth={() => actionMutation.mutate({ server: selected, action: 'health' })} onConfirm={setConfirmAction} /> : null}
 
       <ServerModal open={serverModal.open} server={serverModal.server} groups={groups} devices={devices} onClose={() => setServerModal({ open: false, server: null })} onSaved={async (id) => { setServerModal({ open: false, server: null }); setSelectedId(id); await refreshAll(); }} onError={setError} />
       <SemaphoreModal open={profileOpen} profile={profile} onClose={() => setProfileOpen(false)} onSaved={async () => { setProfileOpen(false); await refreshAll(); }} onError={setError} />
@@ -196,7 +203,7 @@ function UpdateCount({ value, tone }: { value: number | null; tone: string }) {
   return <span className={`ops-update-count is-${tone}`}>{value}</span>;
 }
 
-function ServerInspector({ server, profile, actions, busy, timeZone, onClose, onEdit, onCheck, onConfirm }: { server: Server; profile: SemaphoreProfile | null; actions: ServerAction[]; busy: boolean; timeZone: string; onClose: () => void; onEdit: () => void; onCheck: () => void; onConfirm: (action: 'update' | 'reboot' | 'remove') => void }) {
+function ServerInspector({ server, profile, actions, busy, timeZone, onClose, onEdit, onCheck, onHealth, onConfirm }: { server: Server; profile: SemaphoreProfile | null; actions: ServerAction[]; busy: boolean; timeZone: string; onClose: () => void; onEdit: () => void; onCheck: () => void; onHealth: () => void; onConfirm: (action: 'update' | 'reboot' | 'remove') => void }) {
   const latestAction = actions[0];
   return <aside className="ops-inspector ops-server-inspector">
     <div className="ops-inspector-header"><div><span className="ops-eyebrow">Server details</span><h2>{server.name}</h2><p className="ops-mono">{server.ansibleAlias} · {server.primaryIp}:{server.sshPort}</p></div><button className="ops-icon-button" onClick={onClose}><OperationsIcon name="close" /></button></div>
@@ -204,7 +211,7 @@ function ServerInspector({ server, profile, actions, busy, timeZone, onClose, on
       <div className="ops-server-hero"><ServerState server={server} /><span>{server.osName || server.osFamily}{server.osVersion ? ` ${server.osVersion}` : ''}</span></div>
       <section className="ops-server-update-card"><div><span className="ops-eyebrow">Updates</span><strong>{server.updates == null ? 'Not checked' : `${server.updates} available`}</strong><p>{server.securityUpdates == null ? 'Run a check to collect package status.' : `${server.securityUpdates} security · ${server.rebootRequired ? 'reboot required' : 'no reboot required'}`}</p></div><button className="ops-button ops-button--secondary" disabled={busy || !profile || profile.inventorySyncState !== 'synced'} onClick={onCheck}><OperationsIcon name="refresh" /> {busy ? 'Working…' : 'Check now'}</button></section>
       {latestAction ? <section className="ops-server-section"><span className="ops-eyebrow">Latest automation</span><div className="ops-server-action-row"><span className={`ops-state ops-state--${latestAction.status === 'success' ? 'ok' : latestAction.status === 'failed' ? 'danger' : 'info'}`}>{latestAction.status}</span><div><strong>{humanAction(latestAction.action)}</strong><small>{latestAction.resultSummary || latestAction.errorMessage || formatDateTime(latestAction.requestedAt, timeZone)}</small></div></div></section> : null}
-      <section className="ops-server-section"><span className="ops-eyebrow">Management</span><div className="ops-server-link-grid">{server.cockpitUrl ? <a className="ops-button ops-button--secondary" href={server.cockpitUrl} target="_blank" rel="noreferrer">Cockpit <OperationsIcon name="link" /></a> : null}{profile ? <a className="ops-button ops-button--secondary" href={profile.uiUrl} target="_blank" rel="noreferrer">Semaphore <OperationsIcon name="link" /></a> : null}<a className="ops-button ops-button--secondary" href={`ssh://${server.primaryIp}:${server.sshPort}`}>SSH <OperationsIcon name="link" /></a></div></section>
+      <section className="ops-server-section"><span className="ops-eyebrow">Management</span><div className="ops-server-link-grid"><button className="ops-button ops-button--secondary" disabled={busy || !profile?.healthTemplateId || profile.inventorySyncState !== 'synced'} onClick={onHealth}><OperationsIcon name="activity" /> Health</button>{server.cockpitUrl ? <a className="ops-button ops-button--secondary" href={server.cockpitUrl} target="_blank" rel="noreferrer">Cockpit <OperationsIcon name="link" /></a> : null}{profile ? <a className="ops-button ops-button--secondary" href={profile.uiUrl} target="_blank" rel="noreferrer">Semaphore <OperationsIcon name="link" /></a> : null}<a className="ops-button ops-button--secondary" href={`ssh://${server.primaryIp}:${server.sshPort}`}>SSH <OperationsIcon name="link" /></a></div></section>
       <section className="ops-server-section ops-server-facts"><span className="ops-eyebrow">Details</span><dl><div><dt>Environment</dt><dd>{server.environment || '—'}</dd></div><div><dt>Role</dt><dd>{server.role || '—'}</dd></div><div><dt>Location</dt><dd>{server.location || '—'}</dd></div><div><dt>Rack device</dt><dd>{server.linkedDeviceLabel || 'Not linked'}</dd></div><div><dt>Last check</dt><dd>{formatDateTime(server.lastCheckedAt, timeZone, 'Never')}</dd></div><div><dt>Kernel</dt><dd className="ops-mono">{server.kernel || '—'}</dd></div></dl></section>
       {server.notes ? <section className="ops-server-section"><span className="ops-eyebrow">Notes</span><p>{server.notes}</p></section> : null}
     </div>
