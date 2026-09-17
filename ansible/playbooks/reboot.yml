@@ -1,0 +1,25 @@
+---
+- name: Reboot a managed server
+  hosts: all
+  gather_facts: false
+  become: true
+  serial: 1
+
+  tasks:
+    - name: Reboot and wait for the server
+      ansible.builtin.reboot:
+        connect_timeout: 10
+        reboot_timeout: 900
+        pre_reboot_delay: 0
+        post_reboot_delay: 10
+        test_command: whoami
+
+    - name: Emit the reboot operation result
+      ansible.builtin.debug:
+        msg: >-
+          RAKIT_OPERATION_V1={{ {
+            'host': inventory_hostname,
+            'action': 'reboot',
+            'changed': true
+          } | to_json }}
+

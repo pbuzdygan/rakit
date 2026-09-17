@@ -17,6 +17,7 @@ export function OverviewView() {
   const physicalCapacity = (data.physicalCapacity ?? []) as PhysicalCapacity[];
   const metrics: Metric[] = [
     { key: 'racks', label: 'Racks', value: Number(data.cabinetCount ?? 0), detail: `${Number(data.deviceCount ?? 0)} managed devices`, view: 'cabinet', icon: 'rack' },
+    { key: 'servers', label: 'Servers', value: Number(data.serverCount ?? 0), detail: `${Number(data.serverUpdateCount ?? 0)} available updates`, view: 'servers', icon: 'server' },
     { key: 'connections', label: 'Port connections', value: Number(data.portConnectionCount ?? 0), detail: 'Mapped physical paths', view: 'porthub', icon: 'ports' },
     { key: 'addresses', label: 'Local IP records', value: Number(data.manualIpCount ?? 0), detail: 'Alongside UniFi data', view: 'ipdash', icon: 'network' },
     { key: 'wol', label: 'WOL targets', value: Number(data.wolMachineCount ?? 0), detail: 'Remote start endpoints', view: 'wol', icon: 'power' },

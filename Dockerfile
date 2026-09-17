@@ -28,6 +28,7 @@ COPY backend ./
 RUN node --check server.js \
  && node --check db.js \
  && node --check ipdashClient.js \
+ && node --check semaphoreClient.js \
  && node --check export.js \
  && case "$TARGETARCH" in amd64) native_arch=x64 ;; arm64) native_arch=arm64 ;; *) echo "Unsupported architecture: $TARGETARCH" >&2; exit 1 ;; esac \
  && find node_modules/better-sqlite3/prebuilds -type f ! -name "linux-${native_arch}.node" -delete \

@@ -9,6 +9,7 @@ import { VersionIndicator } from './VersionIndicator';
 const NAV_ITEMS: Array<{ id: View; label: string; icon: OperationsIconName }> = [
   { id: 'overview', label: 'Overview', icon: 'overview' },
   { id: 'cabinet', label: 'Racks', icon: 'rack' },
+  { id: 'servers', label: 'Servers', icon: 'server' },
   { id: 'ipdash', label: 'IP Addressing', icon: 'network' },
   { id: 'porthub', label: 'Port Map', icon: 'ports' },
   { id: 'wol', label: 'Wake on LAN', icon: 'power' },
@@ -18,6 +19,7 @@ const NAV_ITEMS: Array<{ id: View; label: string; icon: OperationsIconName }> = 
 const PAGE_META: Record<View, { section: string; title: string; description: string }> = {
   overview: { section: 'Operations', title: 'Overview', description: 'Infrastructure status and recent activity' },
   cabinet: { section: 'Infrastructure', title: 'Racks', description: 'Cabinet capacity and physical equipment layout' },
+  servers: { section: 'Infrastructure', title: 'Servers', description: 'Managed hosts, updates and Semaphore automation' },
   ipdash: { section: 'Network', title: 'IP Addressing', description: 'UniFi leases, scopes and local reservations' },
   porthub: { section: 'Network', title: 'Port Map', description: 'Physical port mapping and endpoint connections' },
   wol: { section: 'Operations', title: 'Wake on LAN', description: 'Remote start targets and schedules' },

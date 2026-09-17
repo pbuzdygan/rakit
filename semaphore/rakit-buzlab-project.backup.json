@@ -1,0 +1,136 @@
+{
+  "meta": {
+    "name": "RAKIT Infrastructure",
+    "alert": false,
+    "alert_chat": "",
+    "max_parallel_tasks": 1,
+    "type": null
+  },
+  "templates": [
+    {
+      "inventory": "RAKIT Managed Servers",
+      "repository": "Rakit Local Playbooks",
+      "environment": "Rakit Defaults",
+      "name": "Check updates",
+      "playbook": "playbooks/check-updates.yml",
+      "app": "ansible",
+      "working_directory": ".",
+      "arguments": "[]",
+      "task_params": { "params": { "limit": [] } },
+      "allow_override_args_in_task": false,
+      "description": "Refresh APT metadata and report pending and security updates to Rakit.",
+      "vault_key": null,
+      "type": "",
+      "start_version": "1.0.0",
+      "build_template": null,
+      "view": "Maintenance",
+      "autorun": false,
+      "survey_vars": [],
+      "suppress_success_alerts": false,
+      "suppress_error_alerts": false,
+      "cron": ""
+    },
+    {
+      "inventory": "RAKIT Managed Servers",
+      "repository": "Rakit Local Playbooks",
+      "environment": "Rakit Defaults",
+      "name": "Update packages",
+      "playbook": "playbooks/update-packages.yml",
+      "app": "ansible",
+      "working_directory": ".",
+      "arguments": "[]",
+      "task_params": { "params": { "limit": [] } },
+      "allow_override_args_in_task": false,
+      "description": "Install available Debian/Ubuntu package updates on a Rakit-selected host.",
+      "vault_key": null,
+      "type": "",
+      "start_version": "1.0.0",
+      "build_template": null,
+      "view": "Maintenance",
+      "autorun": false,
+      "survey_vars": [],
+      "suppress_success_alerts": false,
+      "suppress_error_alerts": false,
+      "cron": ""
+    },
+    {
+      "inventory": "RAKIT Managed Servers",
+      "repository": "Rakit Local Playbooks",
+      "environment": "Rakit Defaults",
+      "name": "Reboot server",
+      "playbook": "playbooks/reboot.yml",
+      "app": "ansible",
+      "working_directory": ".",
+      "arguments": "[]",
+      "task_params": { "params": { "limit": [] } },
+      "allow_override_args_in_task": false,
+      "description": "Reboot one Rakit-selected host and wait until it returns.",
+      "vault_key": null,
+      "type": "",
+      "start_version": "1.0.0",
+      "build_template": null,
+      "view": "Maintenance",
+      "autorun": false,
+      "survey_vars": [],
+      "suppress_success_alerts": false,
+      "suppress_error_alerts": false,
+      "cron": ""
+    },
+    {
+      "inventory": "RAKIT Managed Servers",
+      "repository": "Rakit Local Playbooks",
+      "environment": "Rakit Defaults",
+      "name": "Server health",
+      "playbook": "playbooks/health-check.yml",
+      "app": "ansible",
+      "working_directory": ".",
+      "arguments": "[]",
+      "task_params": { "params": { "limit": [] } },
+      "allow_override_args_in_task": false,
+      "description": "Collect basic operating-system and root-filesystem facts.",
+      "vault_key": null,
+      "type": "",
+      "start_version": "1.0.0",
+      "build_template": null,
+      "view": "Maintenance",
+      "autorun": false,
+      "survey_vars": [],
+      "suppress_success_alerts": false,
+      "suppress_error_alerts": false,
+      "cron": ""
+    }
+  ],
+  "repositories": [
+    {
+      "name": "Rakit Local Playbooks",
+      "git_url": "/opt/semaphore/ansible",
+      "git_branch": "main",
+      "ssh_key": "None"
+    }
+  ],
+  "keys": [
+    { "name": "None", "type": "none" },
+    { "name": "Rakit SSH", "type": "ssh" },
+    { "name": "Rakit Sudo", "type": "login_password" }
+  ],
+  "views": [
+    { "title": "Maintenance", "position": 0 }
+  ],
+  "inventories": [
+    {
+      "name": "RAKIT Managed Servers",
+      "inventory": "# Managed by Rakit 1.4.0 - review and publish from Servers > Inventory\n[rakit_managed]\n",
+      "ssh_key": "Rakit SSH",
+      "become_key": "Rakit Sudo",
+      "type": "static"
+    }
+  ],
+  "environments": [
+    {
+      "name": "Rakit Defaults",
+      "password": null,
+      "json": "{}",
+      "env": null
+    }
+  ]
+}

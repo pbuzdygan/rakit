@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.0] - 2026-09-17
+
+### New features
+- Added the Servers workspace: a local server catalogue with groups, tags, location, role, operating system, management addresses and Ansible connection settings.
+- Added optional Semaphore integration for publishing a Rakit-managed static inventory and running explicitly mapped update-check, update and reboot templates.
+- Added server update state, security update counts, reboot-required status, operation history and direct Cockpit, Semaphore and SSH links.
+- Added ready-to-import Semaphore project backup, setup documentation and Ansible playbooks for update checks, controlled upgrades, reboot and health facts.
+
+### Improvements
+- Rakit is the source of truth for managed servers. Server and group management remains fully available without a configured or reachable Semaphore instance.
+- Servers entered before enabling Semaphore are retained locally and included when the generated inventory is first reviewed and published.
+- Semaphore API tokens are encrypted at rest and never exposed to the frontend after saving; SSH and privilege-escalation credentials remain in Semaphore Key Store.
+- Inventory publication detects out-of-band changes and requires an explicit review before adopting or replacing a Semaphore inventory.
+
 ## [1.3.0]
 
 ### New features

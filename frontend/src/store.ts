@@ -22,7 +22,7 @@ function save(k: string, v: any) {
   } catch {}
 }
 
-export type View = 'overview' | 'cabinet' | 'ipdash' | 'porthub' | 'wol' | 'audit';
+export type View = 'overview' | 'cabinet' | 'servers' | 'ipdash' | 'porthub' | 'wol' | 'audit';
 type IpDashViewMode = 'table' | 'grid';
 type ConnectionStatus = {
   text: string;
@@ -32,7 +32,7 @@ type ConnectionStatus = {
 const storedView = (() => {
   const value = load<string>('view', 'cabinet');
   if (value === 'ipdash' || value === 'scopes') return 'ipdash';
-  if (value === 'overview' || value === 'porthub' || value === 'wol' || value === 'audit') return value;
+  if (value === 'overview' || value === 'servers' || value === 'porthub' || value === 'wol' || value === 'audit') return value;
   return 'cabinet';
 })() as View;
 
