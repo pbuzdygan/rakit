@@ -15,6 +15,9 @@ Katalog zawierający `playbooks/` musi być widoczny w kontenerze Semaphore jako
 services:
   semaphore:
     image: semaphoreui/semaphore:v2.19.14
+    environment:
+      - TZ=Europe/Warsaw
+      - SEMAPHORE_SCHEDULE_TIMEZONE=Europe/Warsaw
     volumes:
       - /srv/docker/semaphore/data:/var/lib/semaphore
       - /srv/docker/semaphore/config:/etc/semaphore
@@ -30,6 +33,8 @@ Skopiuj zawartość katalogu `ansible/` z projektu Rakit do `/srv/docker/semapho
 Wolumen może być tylko do odczytu. Rakit publikuje inventory przez REST API, a nie przez plik w tym katalogu.
 
 Oficjalne tagi obrazu mają prefiks `v`. Tag `2.19.0` ani `v2.19.0` nie jest dostępny w Docker Hub; użycie nieistniejącego tagu może pozostać niezauważone, dopóki Compose nie spróbuje ponownie utworzyć kontenera.
+
+Strefa musi być poprawną nazwą IANA z ukośnikiem, np. `Europe/Warsaw`. `SEMAPHORE_SCHEDULE_TIMEZONE` steruje wykonaniem harmonogramów Semaphore, natomiast `TZ` czasem procesu i logów. W Rakit użyj `TZ=Europe/Warsaw` albo `APP_TIME_ZONE=Europe/Warsaw`; Rakit toleruje też historyczny zapis z ukośnikiem odwrotnym i normalizuje go przed wysłaniem do interfejsu.
 
 ## 2. Import projektu
 

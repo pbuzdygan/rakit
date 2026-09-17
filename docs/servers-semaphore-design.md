@@ -454,7 +454,7 @@ Wybór identyfikatorów odbywa się z danych odkrytych przez API, nie przez ręc
 
 ## 10. Harmonogramy
 
-W MVP harmonogramy pozostają w Semaphore. Rakit wyświetla link do ich konfiguracji, ale ich nie duplikuje.
+Harmonogramy pozostają konfigurowane w Semaphore. Rakit ich nie duplikuje, ale okresowo importuje zakończone zadania posiadające `schedule_id` i przypisany template.
 
 Pierwszy zalecany harmonogram:
 
@@ -465,12 +465,7 @@ Limit: rakit_managed
 Timezone: Europe/Warsaw
 ```
 
-Samo zadanie wykonane z harmonogramu nie ma lokalnego rekordu `server_actions` utworzonego przez Rakit. Dlatego pełna automatyczna ingestia wyników harmonogramu jest etapem drugim. Dostępne warianty:
-
-1. okresowe pobieranie nowych tasków danego template i ich outputu,
-2. uwierzytelniony callback z playbooka do Rakita.
-
-Preferowany docelowo jest callback, ponieważ nie wymaga częstego odpytywania i jednoznacznie przekazuje wynik per host. Do czasu jego wdrożenia harmonogram w Semaphore może służyć do powiadamiania o sukcesie/błędzie, a stan pakietów w Rakit pochodzi z ręcznych kontroli uruchomionych przez Rakit.
+Backend pobiera ostatnie taski co 10 sekund, filtruje wyłącznie zadania harmonogramowe i rozpisuje znaczniki `RAKIT_RESULT_V1`, `RAKIT_HEALTH_V1` oraz `RAKIT_OPERATION_V1` na wszystkie pasujące hosty. Identyfikator taska jest zapisywany jako zaimportowany, więc wynik nie jest przetwarzany ponownie. Zadania uruchomione ręcznie bezpośrednio w Semaphore nie zmieniają stanu Rakita.
 
 ## 11. Stany błędów widoczne w UI
 

@@ -291,6 +291,7 @@ CREATE TABLE IF NOT EXISTS servers (
   notes TEXT,
   linked_device_id INTEGER,
   ansible_enabled INTEGER NOT NULL DEFAULT 1,
+  inventory_published_signature TEXT,
   status TEXT NOT NULL DEFAULT 'unknown',
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -341,6 +342,9 @@ CREATE TABLE IF NOT EXISTS server_update_status (
   checked_at TEXT,
   check_result TEXT NOT NULL DEFAULT 'never',
   source_task_id INTEGER,
+  last_update_at TEXT,
+  last_update_result TEXT,
+  last_update_task_id INTEGER,
   raw_result_json TEXT,
   FOREIGN KEY(server_id) REFERENCES servers(id) ON DELETE CASCADE,
   CHECK(check_result IN ('never', 'ok', 'partial', 'failed', 'stale'))
@@ -361,6 +365,7 @@ CREATE TABLE IF NOT EXISTS server_actions (
   finished_at TEXT,
   result_summary TEXT,
   error_message TEXT,
+  source TEXT NOT NULL DEFAULT 'rakit',
   FOREIGN KEY(server_id) REFERENCES servers(id) ON DELETE SET NULL,
   FOREIGN KEY(group_id) REFERENCES server_groups(id) ON DELETE SET NULL,
   FOREIGN KEY(semaphore_profile_id) REFERENCES semaphore_profiles(id) ON DELETE RESTRICT,
@@ -370,3 +375,15 @@ CREATE TABLE IF NOT EXISTS server_actions (
 
 CREATE INDEX IF NOT EXISTS idx_server_actions_server_requested
 ON server_actions(server_id, requested_at DESC);
+
+CREATE TABLE IF NOT EXISTS semaphore_task_imports (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  semaphore_profile_id INTEGER NOT NULL,
+  semaphore_task_id INTEGER NOT NULL,
+  schedule_id INTEGER NOT NULL,
+  semaphore_template_id INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  imported_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY(semaphore_profile_id) REFERENCES semaphore_profiles(id) ON DELETE CASCADE,
+  UNIQUE(semaphore_profile_id, semaphore_task_id)
+);

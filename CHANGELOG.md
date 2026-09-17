@@ -18,12 +18,16 @@ All notable changes to this project will be documented in this file.
 - Runtime base packages receive current Debian security fixes during image builds; the full Trivy runtime scan now runs monthly or on demand and reports findings without blocking image publication.
 - Semaphore tasks launched from Rakit are reconciled in the backend even when the Servers screen is closed, and unfinished actions resume visible polling when the inspector is reopened.
 - Server health checks can now be launched from Rakit; successful health or update checks set the host online and retain kernel and uptime facts.
+- Added per-server managed-inventory synchronization indicators and the timestamp/result of the latest package update.
+- Scheduled Semaphore tasks now import per-host health, update-check, package-update and reboot results, while tasks launched manually in Semaphore remain external to Rakit.
 
 ### Bug fixes
 - Fixed successful Semaphore tasks remaining indefinitely in Running when the user navigated away before completion.
 - Fixed update results being missed when Semaphore wraps the `RAKIT_RESULT_V1` JSON across multiple output lines.
 - Fixed update and health result collection by reading Semaphore's plain-text task log endpoint, removing terminal colour codes and retaining a compatibility fallback to the structured output endpoint.
 - Added an explicit root privilege preflight to update-check, package-update and reboot playbooks so missing Semaphore sudo credentials fail before APT or reboot operations.
+- Fixed multi-host scheduled task results updating only one server, and use the Semaphore completion time for imported results.
+- Normalized common backslash variants of IANA time zones such as `europe\\warsaw` to `Europe/Warsaw`.
 
 ## [1.3.0]
 

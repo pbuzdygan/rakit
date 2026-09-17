@@ -166,6 +166,10 @@ export class SemaphoreClient {
   listTemplates(projectId) { return this.request(`/project/${Number(projectId)}/templates`); }
   getTemplate(projectId, templateId) { return this.request(`/project/${Number(projectId)}/templates/${Number(templateId)}`); }
   launchTask(projectId, payload) { return this.request(`/project/${Number(projectId)}/tasks`, { method: 'POST', body: payload }); }
+  listRecentTasks(projectId, count = 50) {
+    const boundedCount = Math.max(1, Math.min(Number(count) || 50, 200));
+    return this.request(`/project/${Number(projectId)}/tasks/last?count=${boundedCount}`);
+  }
   getTask(projectId, taskId) { return this.request(`/project/${Number(projectId)}/tasks/${Number(taskId)}`); }
   getTaskOutput(projectId, taskId) { return this.request(`/project/${Number(projectId)}/tasks/${Number(taskId)}/output`); }
   getTaskRawOutput(projectId, taskId) {

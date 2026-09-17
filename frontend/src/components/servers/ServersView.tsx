@@ -18,11 +18,11 @@ type Server = {
   id: number; name: string; ansibleAlias: string; hostname: string; primaryIp: string; sshPort: number;
   osFamily: string; osName: string; osVersion: string; environment: string; role: string; location: string;
   cockpitUrl: string; notes: string; linkedDeviceId: number | null; linkedDeviceLabel: string;
-  ansibleEnabled: boolean; status: string; groups: ServerGroup[]; updates: number | null;
+  ansibleEnabled: boolean; inventorySyncState: 'disabled' | 'synced' | 'pending'; status: string; groups: ServerGroup[]; updates: number | null;
   securityUpdates: number | null; rebootRequired: boolean | null; kernel: string; uptimeSeconds: number | null;
-  lastCheckedAt: string | null; checkResult: string;
+  lastCheckedAt: string | null; checkResult: string; lastUpdateAt: string | null; lastUpdateResult: string;
 };
-type ServerAction = { id: number; action: string; status: string; semaphoreTaskId: number | null; requestedAt: string; resultSummary: string; errorMessage: string };
+type ServerAction = { id: number; action: string; status: string; semaphoreTaskId: number | null; requestedAt: string; resultSummary: string; errorMessage: string; source: 'rakit' | 'schedule' };
 
 const emptyServerForm = {
   name: '', ansibleAlias: '', primaryIp: '', hostname: '', sshPort: '22', osName: 'Ubuntu Server', osVersion: '',
@@ -154,15 +154,17 @@ export function ServersView() {
         {error ? <div className="ops-error-banner">{error}<button onClick={() => setError('')}><OperationsIcon name="close" /></button></div> : null}
         <div className="ops-table-wrap">
           <table className="ops-table ops-servers-table">
-            <thead><tr><th>Server</th><th>Status</th><th>Groups</th><th>Updates</th><th>Security</th><th>Reboot</th><th>Last check</th><th /></tr></thead>
+            <thead><tr><th>Server</th><th className="ops-server-sync-heading" title="Semaphore inventory status">Sync</th><th>Status</th><th>Groups</th><th>Updates</th><th>Security</th><th>Reboot</th><th>Last update</th><th>Last check</th><th /></tr></thead>
             <tbody>{visible.map((server) => (
               <tr key={server.id} className={selectedId === server.id ? 'is-selected' : ''} onClick={() => setSelectedId(server.id)}>
                 <td><div className="ops-cell-device"><span><OperationsIcon name="server" /></span><div><strong>{server.name}</strong><small><span className="ops-mono">{server.primaryIp}</span>{server.role ? ` · ${server.role}` : ''}</small></div></div></td>
+                <td><ServerInventoryState server={server} /></td>
                 <td><ServerState server={server} /></td>
                 <td><div className="ops-server-tags">{server.groups.slice(0, 2).map((group) => <span key={group.id}>{group.name}</span>)}{server.groups.length > 2 ? <small>+{server.groups.length - 2}</small> : null}</div></td>
                 <td><UpdateCount value={server.updates} tone={server.updates ? 'warning' : 'ok'} /></td>
                 <td><UpdateCount value={server.securityUpdates} tone={server.securityUpdates ? 'danger' : 'neutral'} /></td>
                 <td>{server.rebootRequired == null ? <span className="ops-muted">—</span> : <span className={`ops-state ops-state--${server.rebootRequired ? 'warning' : 'neutral'}`}>{server.rebootRequired ? 'Required' : 'No'}</span>}</td>
+                <td><LastUpdate server={server} timeZone={timeZone} /></td>
                 <td className="ops-muted">{server.lastCheckedAt ? formatRelativeTime(server.lastCheckedAt) : 'Never'}</td>
                 <td><OperationsIcon name="chevron" /></td>
               </tr>
@@ -198,6 +200,21 @@ function ServerState({ server }: { server: Server }) {
   return <span className={`ops-state ops-state--${tone}`}><span className="ops-status-dot" />{server.status}</span>;
 }
 
+function ServerInventoryState({ server }: { server: Server }) {
+  if (!server.ansibleEnabled) return null;
+  const synced = server.inventorySyncState === 'synced';
+  const title = synced
+    ? 'Published in the Semaphore managed inventory'
+    : 'Selected for Semaphore, but not synchronized or changed since the last successful sync';
+  return <span className={`ops-server-sync ${synced ? 'is-synced' : 'is-pending'}`} title={title} aria-label={title}><OperationsIcon name="refresh" /></span>;
+}
+
+function LastUpdate({ server, timeZone }: { server: Server; timeZone: string }) {
+  if (!server.lastUpdateAt) return <span className="ops-muted">Never</span>;
+  const successful = server.lastUpdateResult === 'success';
+  return <span className={`ops-last-update ${successful ? 'is-success' : 'is-failed'}`} title={`${successful ? 'Successful' : 'Failed'} · ${formatDateTime(server.lastUpdateAt, timeZone)}`}><OperationsIcon name={successful ? 'check' : 'close'} /><span>{formatRelativeTime(server.lastUpdateAt)}</span></span>;
+}
+
 function UpdateCount({ value, tone }: { value: number | null; tone: string }) {
   if (value == null) return <span className="ops-muted">—</span>;
   return <span className={`ops-update-count is-${tone}`}>{value}</span>;
@@ -210,9 +227,9 @@ function ServerInspector({ server, profile, actions, busy, timeZone, onClose, on
     <div className="ops-inspector-body">
       <div className="ops-server-hero"><ServerState server={server} /><span>{server.osName || server.osFamily}{server.osVersion ? ` ${server.osVersion}` : ''}</span></div>
       <section className="ops-server-update-card"><div><span className="ops-eyebrow">Updates</span><strong>{server.updates == null ? 'Not checked' : `${server.updates} available`}</strong><p>{server.securityUpdates == null ? 'Run a check to collect package status.' : `${server.securityUpdates} security · ${server.rebootRequired ? 'reboot required' : 'no reboot required'}`}</p></div><button className="ops-button ops-button--secondary" disabled={busy || !profile || profile.inventorySyncState !== 'synced'} onClick={onCheck}><OperationsIcon name="refresh" /> {busy ? 'Working…' : 'Check now'}</button></section>
-      {latestAction ? <section className="ops-server-section"><span className="ops-eyebrow">Latest automation</span><div className="ops-server-action-row"><span className={`ops-state ops-state--${latestAction.status === 'success' ? 'ok' : latestAction.status === 'failed' ? 'danger' : 'info'}`}>{latestAction.status}</span><div><strong>{humanAction(latestAction.action)}</strong><small>{latestAction.resultSummary || latestAction.errorMessage || formatDateTime(latestAction.requestedAt, timeZone)}</small></div></div></section> : null}
+      {latestAction ? <section className="ops-server-section"><span className="ops-eyebrow">Latest automation</span><div className="ops-server-action-row"><span className={`ops-state ops-state--${latestAction.status === 'success' ? 'ok' : latestAction.status === 'failed' ? 'danger' : 'info'}`}>{latestAction.status}</span><div><strong>{humanAction(latestAction.action)}{latestAction.source === 'schedule' ? ' · schedule' : ''}</strong><small>{latestAction.resultSummary || latestAction.errorMessage || formatDateTime(latestAction.requestedAt, timeZone)}</small></div></div></section> : null}
       <section className="ops-server-section"><span className="ops-eyebrow">Management</span><div className="ops-server-link-grid"><button className="ops-button ops-button--secondary" disabled={busy || !profile?.healthTemplateId || profile.inventorySyncState !== 'synced'} onClick={onHealth}><OperationsIcon name="activity" /> Health</button>{server.cockpitUrl ? <a className="ops-button ops-button--secondary" href={server.cockpitUrl} target="_blank" rel="noreferrer">Cockpit <OperationsIcon name="link" /></a> : null}{profile ? <a className="ops-button ops-button--secondary" href={profile.uiUrl} target="_blank" rel="noreferrer">Semaphore <OperationsIcon name="link" /></a> : null}<a className="ops-button ops-button--secondary" href={`ssh://${server.primaryIp}:${server.sshPort}`}>SSH <OperationsIcon name="link" /></a></div></section>
-      <section className="ops-server-section ops-server-facts"><span className="ops-eyebrow">Details</span><dl><div><dt>Environment</dt><dd>{server.environment || '—'}</dd></div><div><dt>Role</dt><dd>{server.role || '—'}</dd></div><div><dt>Location</dt><dd>{server.location || '—'}</dd></div><div><dt>Rack device</dt><dd>{server.linkedDeviceLabel || 'Not linked'}</dd></div><div><dt>Last check</dt><dd>{formatDateTime(server.lastCheckedAt, timeZone, 'Never')}</dd></div><div><dt>Kernel</dt><dd className="ops-mono">{server.kernel || '—'}</dd></div></dl></section>
+      <section className="ops-server-section ops-server-facts"><span className="ops-eyebrow">Details</span><dl><div><dt>Environment</dt><dd>{server.environment || '—'}</dd></div><div><dt>Role</dt><dd>{server.role || '—'}</dd></div><div><dt>Location</dt><dd>{server.location || '—'}</dd></div><div><dt>Rack device</dt><dd>{server.linkedDeviceLabel || 'Not linked'}</dd></div><div><dt>Last package update</dt><dd>{server.lastUpdateAt ? `${server.lastUpdateResult} · ${formatDateTime(server.lastUpdateAt, timeZone)}` : 'Never'}</dd></div><div><dt>Last check</dt><dd>{formatDateTime(server.lastCheckedAt, timeZone, 'Never')}</dd></div><div><dt>Kernel</dt><dd className="ops-mono">{server.kernel || '—'}</dd></div></dl></section>
       {server.notes ? <section className="ops-server-section"><span className="ops-eyebrow">Notes</span><p>{server.notes}</p></section> : null}
     </div>
     <div className="ops-inspector-footer ops-server-footer"><button className="ops-icon-button ops-danger-icon" title="Remove server" onClick={() => onConfirm('remove')}><OperationsIcon name="trash" /></button><button className="ops-button ops-button--secondary" onClick={onEdit}><OperationsIcon name="edit" /> Edit</button><button className="ops-button ops-button--secondary" disabled={busy || !profile?.updateTemplateId || profile.inventorySyncState !== 'synced'} onClick={() => onConfirm('update')}>Update</button><button className="ops-button" disabled={busy || !profile?.rebootTemplateId || profile.inventorySyncState !== 'synced'} onClick={() => onConfirm('reboot')}><OperationsIcon name="power" /> Reboot</button></div>
