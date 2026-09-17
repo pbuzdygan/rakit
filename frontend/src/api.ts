@@ -126,7 +126,8 @@ export const Api = {
     update: (id: number, payload: any) => api(`/api/semaphore/profile/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
     discover: (id: number, projectId?: number | null) => api(`/api/semaphore/profile/${id}/discover`, { method: 'POST', body: JSON.stringify({ projectId }) }),
     inventoryDiff: (id: number) => api(`/api/semaphore/profile/${id}/inventory-diff`),
-    adoptInventory: (id: number) => api(`/api/semaphore/profile/${id}/inventory-adopt`, { method: 'POST', body: JSON.stringify({ confirmation: 'REPLACE' }) }),
+    keepRakitInventory: (id: number, expectedRemoteHash: string) => api(`/api/semaphore/profile/${id}/inventory-adopt`, { method: 'POST', body: JSON.stringify({ confirmation: 'REPLACE', expectedRemoteHash }) }),
+    keepRemoteInventory: (id: number, expectedRemoteHash: string) => api(`/api/semaphore/profile/${id}/inventory-import`, { method: 'POST', body: JSON.stringify({ confirmation: 'KEEP_REMOTE', expectedRemoteHash }) }),
     syncInventory: (id: number) => api(`/api/semaphore/profile/${id}/inventory-sync`, { method: 'POST', body: '{}' }),
   },
   servers: {

@@ -235,23 +235,20 @@ Przed aktualizacją backend:
 4. generuje nową treść z lokalnej bazy,
 5. wykonuje `PUT` tylko wtedy, gdy zdalna treść nadal odpowiada ostatnio opublikowanej wersji.
 
-Jeżeli zdalny hash różni się od ostatniego znanego, stan przechodzi na `conflict`. Użytkownik otrzymuje podgląd różnic oraz akcje:
+Jeżeli zdalny hash różni się od ostatniego znanego, stan przechodzi na `conflict`. Przy pierwszej synchronizacji użytkownik otrzymuje porównanie obu treści i wybiera `Keep Remote Inventory` albo `Keep Rakit Inventory`.
 
-- `Import as draft` — późniejszy etap; próba utworzenia rekordów w Rakit,
-- `Replace with Rakit inventory` — jawne nadpisanie po potwierdzeniu,
-- `Cancel` — pozostawienie konfliktu.
-
-Pierwsza konfiguracja również wymaga jawnej akcji `Adopt inventory`. Domyślnie Rakit nie nadpisuje istniejącej treści.
+Domyślnie Rakit nie nadpisuje istniejącej treści bez tej jawnej decyzji.
 
 ### Zachowanie przy awarii Semaphore
 
-Zmiana serwera jest najpierw zapisywana w Rakit, ponieważ to Rakit jest źródłem prawdy. Następnie wykonywana jest próba synchronizacji.
+Zmiana wpływająca na generowane inventory jest najpierw zapisywana w Rakit, ponieważ to Rakit jest źródłem prawdy, a następnie automatycznie publikowana. Po powodzeniu UI przez kilka sekund potwierdza synchronizację. Edycja wyłącznie lokalnych metadanych, takich jak opis lub użytkownik skrótu SSH, nie wymaga publikacji.
 
 Jeżeli Semaphore jest niedostępny:
 
 - zapis serwera pozostaje wykonany,
-- profil otrzymuje `inventory_sync_state = 'failed'`,
-- UI pokazuje `Inventory out of sync`,
+- profil wraca do `inventory_sync_state = 'pending'`,
+- UI pokazuje `Sync required` i pozwala ręcznie ponowić próbę,
+- następne zmiany nadal modyfikują pełną lokalną projekcję, więc żaden dodany, zmieniony ani usunięty serwer nie ginie,
 - akcje Ansible dla niesynchronizowanego nowego/zmienionego hosta są zablokowane,
 - użytkownik może użyć `Retry sync`.
 
@@ -344,6 +341,7 @@ POST   /api/semaphore/profile/test
 POST   /api/semaphore/profile/:id/discover
 GET    /api/semaphore/profile/:id/inventory-diff
 POST   /api/semaphore/profile/:id/inventory-adopt
+POST   /api/semaphore/profile/:id/inventory-import
 POST   /api/semaphore/profile/:id/inventory-sync
 ```
 
@@ -448,7 +446,9 @@ Profil znajduje się w ustawieniach/integrations i prowadzi użytkownika kolejno
 3. wybór projektu,
 4. wybór dedykowanego inventory,
 5. mapowanie czterech templates,
-6. podgląd inventory i pierwsze `Adopt inventory`.
+6. podgląd obu inventory i wybór `Keep Rakit Inventory` albo `Keep Remote Inventory`.
+
+Pierwsza opcja publikuje lokalną projekcję w Semaphore. Druga importuje kompatybilne hosty oraz grupy z inventory INI do Rakita, zachowując dodatkowe lokalne metadane serwerów o tych samych aliasach. Konstrukcje, których Rakit nie potrafi zachować bez utraty znaczenia (np. YAML, `:vars`, `:children` albo dodatkowe zmienne hosta), są odrzucane przed rozpoczęciem transakcji.
 
 Wybór identyfikatorów odbywa się z danych odkrytych przez API, nie przez ręczne przepisywanie numerów, choć zaawansowany tryb może je pokazywać.
 
