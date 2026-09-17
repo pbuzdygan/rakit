@@ -93,6 +93,7 @@ Backend is configured via environment variables:
 - `SERVER_PROBE_MODE` – Servers reachability method: `icmp` (default), `tcp`, or `icmp-tcp` (ICMP with TCP fallback). TCP modes are explicit opt-ins because repeated connection attempts can trigger IDS rules.
 - `SERVER_PROBE_TIMEOUT_MS` – reachability timeout for Servers management targets (default: `1500` ms).
 - `SERVER_PROBE_INTERVAL_MS` – interval between independent Servers network checks (default: `60000` ms).
+- `SEMAPHORE_INVENTORY_PULL_INTERVAL_MS` – interval for safely pulling a newer portable Rakit catalogue from a shared Semaphore inventory when no local changes are pending (default: `30000` ms).
 - The container drops all Linux capabilities and adds back only `NET_RAW`; file capabilities restrict its use to `/bin/ping`, while the Node process remains an unprivileged user without effective capabilities.
 - `TZ` – IANA time zone used for UI date/time presentation and WOL cron evaluation (for example `Europe/Warsaw`).
 - `APP_TIME_ZONE` – optional presentation/scheduling override; takes precedence over `TZ`.

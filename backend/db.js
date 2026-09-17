@@ -53,6 +53,8 @@ ensureColumn('ipdash_scope_hosts', 'linked_device_id', 'INTEGER REFERENCES cabin
 ensureColumn('servers', 'inventory_published_signature', 'TEXT');
 ensureColumn('servers', 'health_checked_at', 'TEXT');
 ensureColumn('servers', 'ssh_user', 'TEXT');
+ensureColumn('servers', 'inventory_shared', 'INTEGER NOT NULL DEFAULT 1');
+ensureColumn('server_groups', 'inventory_shared', 'INTEGER NOT NULL DEFAULT 1');
 ensureColumn('server_update_status', 'last_update_at', 'TEXT');
 ensureColumn('server_update_status', 'last_update_result', 'TEXT');
 ensureColumn('server_update_status', 'last_update_task_id', 'INTEGER');

@@ -115,6 +115,7 @@ services:
       # - SERVER_PROBE_TIMEOUT_MS=1500
       # - SERVER_PROBE_INTERVAL_MS=60000
       # Optional Semaphore integration HTTP client tuning
+      # - SEMAPHORE_INVENTORY_PULL_INTERVAL_MS=30000
       # - SEMAPHORE_TIMEOUT_MS=15000
       # - SEMAPHORE_MAX_RESPONSE_MB=10
       # Enable only when Semaphore is intentionally reached through 127.0.0.1/localhost

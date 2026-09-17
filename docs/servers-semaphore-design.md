@@ -221,11 +221,13 @@ buzhulk-dev
 
 Wyłączony `ansible_enabled` usuwa host z projekcji, ale nie usuwa rekordu serwera z Rakita.
 
-Rakit nie publikuje w inventory sekretów, haseł, prywatnych kluczy ani dowolnych wartości przekazanych przez frontend. W MVP publikuje tylko alias, `ansible_host`, `ansible_port` i członkostwo w grupach.
+Rakit nie publikuje w inventory sekretów, haseł ani prywatnych kluczy. Część wykonywana przez Ansible zawiera tylko alias, `ansible_host`, `ansible_port` i członkostwo w grupach. Dodatkowo komentarze INI zawierają wersjonowany manifest katalogu Rakita: nazwy wyświetlane grup, metadane serwerów, członkostwo oraz wpisy nieobjęte automatyzacją. Ansible ignoruje komentarze, natomiast druga instancja Rakita może bezstratnie odtworzyć katalog.
 
 ### Synchronizacja i konflikt
 
 Każde inventory ma zapamiętany hash ostatniej treści skutecznie opublikowanej przez Rakit.
+
+Instancje mogą współdzielić jedno dedykowane inventory. Co 30 sekund instancja ze stanem lokalnym zgodnym z ostatnim hashem sprawdza zdalną rewizję i automatycznie importuje nowszy manifest. Dodania, zmiany i świadome usunięcia elementów wspólnego katalogu są odtwarzane na pozostałych instancjach. Wpisy zachowane lokalnie po imporcie starszego inventory bez manifestu nie są przypadkowo usuwane ani ponownie publikowane. Jeżeli jednocześnie zmieniono obie strony, automatyczny import jest zatrzymywany i powstaje konflikt wymagający wskazania źródła prawdy.
 
 Przed aktualizacją backend:
 
@@ -448,7 +450,7 @@ Profil znajduje się w ustawieniach/integrations i prowadzi użytkownika kolejno
 5. mapowanie czterech templates,
 6. podgląd obu inventory i wybór `Keep Rakit Inventory` albo `Keep Remote Inventory`.
 
-Pierwsza opcja publikuje lokalną projekcję w Semaphore. Druga importuje kompatybilne hosty oraz grupy z inventory INI do Rakita, zachowując dodatkowe lokalne metadane serwerów o tych samych aliasach. Konstrukcje, których Rakit nie potrafi zachować bez utraty znaczenia (np. YAML, `:vars`, `:children` albo dodatkowe zmienne hosta), są odrzucane przed rozpoczęciem transakcji.
+Pierwsza opcja publikuje lokalną projekcję i przenośny manifest w Semaphore. Druga importuje kompatybilne hosty, pełne nazwy grup i katalog serwerów z manifestu. Starsze inventory bez manifestu pozostaje importowalne, ale może odtworzyć wyłącznie techniczne aliasy, adresy, porty oraz nazwy grup Ansible. Konstrukcje, których Rakit nie potrafi zachować bez utraty znaczenia (np. YAML, `:vars`, `:children` albo dodatkowe zmienne hosta), są odrzucane przed rozpoczęciem transakcji.
 
 Wybór identyfikatorów odbywa się z danych odkrytych przez API, nie przez ręczne przepisywanie numerów, choć zaawansowany tryb może je pokazywać.
 
