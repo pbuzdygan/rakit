@@ -1,0 +1,41 @@
+---
+- name: Reboot a managed server
+  hosts: all
+  gather_facts: false
+  become: true
+  become_method: sudo
+  become_user: root
+  serial: 1
+
+  pre_tasks:
+    - name: Verify privilege escalation to root
+      ansible.builtin.command: /usr/bin/id -u
+      register: rakit_effective_uid
+      changed_when: false
+      become: true
+
+    - name: Require effective root privileges
+      ansible.builtin.assert:
+        that:
+          - rakit_effective_uid.stdout | trim == '0'
+        fail_msg: >-
+          Sudo privilege escalation is not active. Configure the inventory Become Key
+          in Semaphore or install the documented NOPASSWD rule for the SSH user.
+
+  tasks:
+    - name: Reboot and wait for the server
+      ansible.builtin.reboot:
+        connect_timeout: 10
+        reboot_timeout: 900
+        pre_reboot_delay: 0
+        post_reboot_delay: 10
+        test_command: whoami
+
+    - name: Emit the reboot operation result
+      ansible.builtin.debug:
+        msg: >-
+          RAKIT_OPERATION_V1={{ {
+            'host': inventory_hostname,
+            'action': 'reboot',
+            'changed': true
+          } | to_json }}

@@ -114,7 +114,32 @@ const collectWolSchedules = () => db.prepare(`
   ORDER BY wm.name COLLATE NOCASE, ws.id
 `).all();
 
-export function buildExportWorkbook({ includeCabinet = true, includeConnections = false, includeWol = false, ipDashContext = null } = {}) {
+const collectServers = () => db.prepare(`
+  SELECT s.*, sns.status AS network_status, sns.checked_at AS network_checked_at,
+    sns.latency_ms AS network_latency_ms, sns.detail AS network_detail,
+    sus.updates_available, sus.security_updates, sus.reboot_required,
+    sus.kernel, sus.uptime_seconds, sus.checked_at AS update_checked_at,
+    sus.check_result, sus.last_update_at, sus.last_update_result,
+    c.name AS linked_cabinet, d.device_type AS linked_device_type, d.model AS linked_device_model,
+    (
+      SELECT GROUP_CONCAT(group_name, ', ')
+      FROM (
+        SELECT sg.name AS group_name
+        FROM server_group_members sgm
+        JOIN server_groups sg ON sg.id=sgm.group_id
+        WHERE sgm.server_id=s.id
+        ORDER BY sg.name COLLATE NOCASE
+      )
+    ) AS group_names
+  FROM servers s
+  LEFT JOIN server_network_status sns ON sns.server_id=s.id
+  LEFT JOIN server_update_status sus ON sus.server_id=s.id
+  LEFT JOIN cabinet_devices d ON d.id=s.linked_device_id
+  LEFT JOIN cabinets c ON c.id=d.cabinet_id
+  ORDER BY s.name COLLATE NOCASE
+`).all();
+
+export function buildExportWorkbook({ includeCabinet = true, includeServers = false, includeConnections = false, includeWol = false, ipDashContext = null } = {}) {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'Rakit';
   workbook.created = new Date();
@@ -123,6 +148,7 @@ export function buildExportWorkbook({ includeCabinet = true, includeConnections 
   const cabinets = includeCabinet ? collectCabinets() : [];
   const devices = includeCabinet ? collectCabinetDevices() : [];
   const connections = includeConnections ? collectPortConnections() : [];
+  const servers = includeServers ? collectServers() : [];
   const wolMachines = includeWol ? collectWolMachines() : [];
   const wolSchedules = includeWol ? collectWolSchedules() : [];
   const devicesByCab = new Map();
@@ -131,7 +157,7 @@ export function buildExportWorkbook({ includeCabinet = true, includeConnections 
     devicesByCab.get(device.cabinetId).push(device);
   });
 
-  if (includeCabinet || includeConnections || includeWol || ipDashContext) {
+  if (includeCabinet || includeServers || includeConnections || includeWol || ipDashContext) {
     addCabinetOverview(
       workbook,
       includeCabinet ? cabinets : [],
@@ -142,7 +168,9 @@ export function buildExportWorkbook({ includeCabinet = true, includeConnections 
       wolMachines,
       wolSchedules,
       includeConnections,
-      includeWol
+      includeWol,
+      servers,
+      includeServers
     );
   }
 
@@ -151,6 +179,8 @@ export function buildExportWorkbook({ includeCabinet = true, includeConnections 
     addCabinetExperimentalSheet(workbook, cabinets, devicesByCab);
   }
 
+  if (includeServers) addServerSheet(workbook, servers);
+
   if (ipDashContext) {
     addIpDashSheets(workbook, ipDashContext);
   }
@@ -158,7 +188,7 @@ export function buildExportWorkbook({ includeCabinet = true, includeConnections 
   if (includeConnections) addPortConnectionSheet(workbook, connections);
   if (includeWol) addWolSheets(workbook, wolMachines, wolSchedules);
 
-  if (!includeCabinet && !includeConnections && !includeWol && !ipDashContext) {
+  if (!includeCabinet && !includeServers && !includeConnections && !includeWol && !ipDashContext) {
     const emptySheet = workbook.addWorksheet('Overview');
     emptySheet.addRow(['No modules were selected.']);
   }
@@ -166,7 +196,7 @@ export function buildExportWorkbook({ includeCabinet = true, includeConnections 
   return workbook;
 }
 
-function addCabinetOverview(workbook, cabinets, devices, includeIpDash, includeCabinets = true, connections = [], wolMachines = [], wolSchedules = [], includeConnections = false, includeWol = false) {
+function addCabinetOverview(workbook, cabinets, devices, includeIpDash, includeCabinets = true, connections = [], wolMachines = [], wolSchedules = [], includeConnections = false, includeWol = false, servers = [], includeServers = false) {
   const overview = workbook.addWorksheet('Overview');
   overview.columns = [
     { width: 24 },
@@ -178,27 +208,37 @@ function addCabinetOverview(workbook, cabinets, devices, includeIpDash, includeC
   styleHeader(overview.getRow(1));
   if (includeCabinets) {
     const cabRow = overview.addRow([
-      'IT Cabinet',
+      'Racks',
       cabinets.length,
       `Devices: ${devices.length}`,
       `Capacity U: ${cabinets.reduce((sum, cab) => sum + cab.sizeU, 0)}`,
     ]);
     styleBody(cabRow);
   }
+  if (includeServers) {
+    const row = overview.addRow([
+      'Servers',
+      servers.length,
+      `Reachable: ${servers.filter((server) => server.network_status === 'reachable').length}`,
+      `Healthy: ${servers.filter((server) => server.status === 'online').length}`,
+    ]);
+    styleBody(row);
+  }
   if (includeIpDash) {
-    const ipRow = overview.addRow(['IP Dash', 'See sheet', 'Live snapshot', 'Using light palette']);
+    const ipRow = overview.addRow(['IP Addressing', 'See sheet', 'Live snapshot', 'Using light palette']);
     styleBody(ipRow);
   }
   if (includeConnections) {
-    const row = overview.addRow(['Port connections', connections.length, 'Mapped links', 'Source ↔ destination']);
+    const row = overview.addRow(['Port Map', connections.length, 'Mapped links', 'Source ↔ destination']);
     styleBody(row);
   }
   if (includeWol) {
     const row = overview.addRow(['Wake on LAN', wolMachines.length, `Schedules: ${wolSchedules.length}`, `Enabled: ${wolMachines.filter((machine) => machine.enabled).length}`]);
     styleBody(row);
   }
-  overview.mergeCells('A6:D8');
-  const hero = overview.getCell('A6');
+  const heroStart = overview.rowCount + 2;
+  overview.mergeCells(`A${heroStart}:D${heroStart + 2}`);
+  const hero = overview.getCell(`A${heroStart}`);
   hero.value = 'Rakit export\nBranded for light mode reviews.';
   hero.fill = accentFill;
   hero.font = { bold: true, color: { argb: toArgb('#FFFFFF') }, size: 14 };
@@ -301,7 +341,7 @@ function addCabinetExperimentalSheet(workbook, cabinets, devicesByCab) {
 }
 
 function addPortConnectionSheet(workbook, connections) {
-  const sheet = workbook.addWorksheet('Port connections');
+  const sheet = workbook.addWorksheet('Port Map');
   sheet.columns = [
     { header: 'Source cabinet', key: 'sourceCabinet', width: 22 },
     { header: 'Source device', key: 'sourceDevice', width: 28 },
@@ -331,6 +371,67 @@ function addPortConnectionSheet(workbook, connections) {
     linkedAsset: [connection.linked_type, connection.linked_model].filter(Boolean).join(' · '),
     comment: connection.comment ?? '',
   })));
+}
+
+function addServerSheet(workbook, servers) {
+  const sheet = workbook.addWorksheet('Servers');
+  sheet.columns = [
+    { header: 'Name', key: 'name', width: 26 },
+    { header: 'Ansible alias', key: 'ansibleAlias', width: 22 },
+    { header: 'Management IP / host', key: 'primaryIp', width: 23 },
+    { header: 'SSH port', key: 'sshPort', width: 10 },
+    { header: 'Inventory', key: 'inventory', width: 15 },
+    { header: 'Groups', key: 'groups', width: 30 },
+    { header: 'Network', key: 'network', width: 14 },
+    { header: 'Network checked', key: 'networkChecked', width: 21 },
+    { header: 'Latency (ms)', key: 'latency', width: 13 },
+    { header: 'Health', key: 'health', width: 14 },
+    { header: 'Health checked', key: 'healthChecked', width: 21 },
+    { header: 'Updates', key: 'updates', width: 11 },
+    { header: 'Security', key: 'security', width: 11 },
+    { header: 'Reboot required', key: 'reboot', width: 16 },
+    { header: 'Update checked', key: 'updateChecked', width: 21 },
+    { header: 'Last update', key: 'lastUpdate', width: 21 },
+    { header: 'Update result', key: 'updateResult', width: 16 },
+    { header: 'OS', key: 'os', width: 25 },
+    { header: 'Kernel', key: 'kernel', width: 24 },
+    { header: 'Environment', key: 'environment', width: 18 },
+    { header: 'Role', key: 'role', width: 22 },
+    { header: 'Location', key: 'location', width: 22 },
+    { header: 'Linked rack device', key: 'linkedDevice', width: 32 },
+    { header: 'Cockpit URL', key: 'cockpitUrl', width: 34 },
+    { header: 'Notes', key: 'notes', width: 42 },
+  ];
+  styleHeader(sheet.getRow(1));
+  servers.forEach((server) => styleBody(sheet.addRow({
+    name: server.name,
+    ansibleAlias: server.ansible_alias,
+    primaryIp: server.primary_ip,
+    sshPort: server.ssh_port,
+    inventory: !server.ansible_enabled ? 'Not managed' : server.inventory_published_signature ? 'Published' : 'Pending sync',
+    groups: server.group_names ?? '',
+    network: server.network_status ?? 'unknown',
+    networkChecked: server.network_checked_at ?? '',
+    latency: server.network_latency_ms ?? '',
+    health: server.status ?? 'unknown',
+    healthChecked: server.health_checked_at ?? '',
+    updates: server.updates_available ?? '',
+    security: server.security_updates ?? '',
+    reboot: server.reboot_required == null ? '' : server.reboot_required ? 'Yes' : 'No',
+    updateChecked: server.update_checked_at ?? '',
+    lastUpdate: server.last_update_at ?? '',
+    updateResult: server.last_update_result ?? '',
+    os: [server.os_name || server.os_family, server.os_version].filter(Boolean).join(' '),
+    kernel: server.kernel ?? '',
+    environment: server.environment ?? '',
+    role: server.role ?? '',
+    location: server.location ?? '',
+    linkedDevice: [server.linked_cabinet, server.linked_device_type, server.linked_device_model].filter(Boolean).join(' · '),
+    cockpitUrl: server.cockpit_url ?? '',
+    notes: server.notes ?? '',
+  })));
+  sheet.views = [{ state: 'frozen', ySplit: 1 }];
+  sheet.autoFilter = { from: 'A1', to: 'Y1' };
 }
 
 function addWolSheets(workbook, machines, schedules) {
@@ -385,8 +486,8 @@ function addIpDashSheets(workbook, context) {
   const snapshot = context.snapshot || {};
   const networks = parseNetworks(snapshot.networks || []);
   if (!networks.length) {
-    const sheet = workbook.addWorksheet('IP Dash');
-    sheet.addRow(['No networks available. Connect a profile to export IP Dash.']);
+    const sheet = workbook.addWorksheet('IP Addressing');
+    sheet.addRow(['No networks available. Connect a profile to export IP Addressing.']);
     return;
   }
   const usersByIp = indexUsersByIp(snapshot.users || []);
@@ -401,7 +502,7 @@ function addIpDashSheets(workbook, context) {
   networks.forEach((network, idx) => {
     const hostEntries = getHostsForRendering(network, usersByIp, filters, onlineSet, offlineMode);
     const grouped = getGroupedEntries(hostEntries, context.groupBy || 'none', context.groupTags || {});
-    const baseName = `IP Dash – ${network.name || network.ipSubnet || `Network ${idx + 1}`}`;
+    const baseName = `IP Addressing – ${network.name || network.ipSubnet || `Network ${idx + 1}`}`;
     const sheetName = ensureUniqueSheetName(baseName, usedNames);
     const sheet = workbook.addWorksheet(sheetName);
     sheet.addRow([

@@ -90,6 +90,10 @@ Backend is configured via environment variables:
 - `AUDIT_RETENTION_DAYS` – optional audit retention in days; `0`/unset keeps all events.
 - `WOL_PROBE_TIMEOUT_MS` – TCP reachability timeout for WOL targets (default: `1200` ms).
 - `WOL_STATUS_CACHE_MS` – cache lifetime for WOL reachability results (default: `20000` ms).
+- `SERVER_PROBE_MODE` – Servers reachability method: `icmp` (default), `tcp`, or `icmp-tcp` (ICMP with TCP fallback). TCP modes are explicit opt-ins because repeated connection attempts can trigger IDS rules.
+- `SERVER_PROBE_TIMEOUT_MS` – reachability timeout for Servers management targets (default: `1500` ms).
+- `SERVER_PROBE_INTERVAL_MS` – interval between independent Servers network checks (default: `60000` ms).
+- The container drops all Linux capabilities and adds back only `NET_RAW`; file capabilities restrict its use to `/bin/ping`, while the Node process remains an unprivileged user without effective capabilities.
 - `TZ` – IANA time zone used for UI date/time presentation and WOL cron evaluation (for example `Europe/Warsaw`).
 - `APP_TIME_ZONE` – optional presentation/scheduling override; takes precedence over `TZ`.
 
@@ -200,7 +204,7 @@ If `APP_ENC_KEY` is changed without resetting, all operations that require the k
 
 Configuration:
 
-- Reads env vars (`PORT`, `APP_PIN`, `APP_ENC_KEY`, `IP_DASH_TIMEOUT_MS`, `AUDIT_RETENTION_DAYS`, `WOL_PROBE_TIMEOUT_MS`, `WOL_STATUS_CACHE_MS`, `TZ`, `APP_TIME_ZONE`).
+- Reads env vars (`PORT`, `APP_PIN`, `APP_ENC_KEY`, `IP_DASH_TIMEOUT_MS`, `AUDIT_RETENTION_DAYS`, `WOL_PROBE_TIMEOUT_MS`, `WOL_STATUS_CACHE_MS`, `SERVER_PROBE_MODE`, `SERVER_PROBE_TIMEOUT_MS`, `SERVER_PROBE_INTERVAL_MS`, `TZ`, `APP_TIME_ZONE`).
 - Validates `APP_PIN` on startup:
   - Must be 4–8 digits.
   - If invalid or missing → process exits (running without PIN is not supported).
@@ -354,12 +358,12 @@ IP Dash scopes and offline hosts:
 
 - `POST /api/export`
   - Input payload:
-    - `modules?: string[]` – list of included modules (e.g. `['cabinet', 'ipdash']`).
+    - `modules?: string[]` – list of included modules (`cabinet`, `servers`, `connections`, `wol`, `ipdash`).
     - `ipdash?: { … }` – optional IP Dash context parameters (profileId, filters, view, etc.).
   - Behavior:
     - Resolves which modules to include.
     - If IP Dash is requested, first checks `guardEncryptionReady` and then builds IP Dash context.
-    - Calls `buildExportWorkbook({ includeCabinet, ipDashContext })`.
+    - Calls `buildExportWorkbook` with the selected Racks, Servers, Port Map, Wake on LAN and IP Addressing modules.
     - Streams Excel workbook with headers:
       - `Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
       - `Content-Disposition: attachment; filename="rakit_export.xlsx"`.
@@ -372,8 +376,9 @@ Workbook structure (`export.js`):
 - Sheets:
   - `Overview`
     - Summarizes included modules:
-      - IT Cabinet: count of cabinets/devices, total capacity U.
-      - IP Dash: presence of live snapshot sheets.
+      - Racks: count of cabinets/devices, total capacity U.
+      - Servers: host count plus reachable and healthy totals.
+      - IP Addressing: presence of live snapshot sheets.
     - Contains a branded hero tile with Rakit description (light‑mode ready).
   - `Cabinets`
     - Tabular list of cabinets with counts of devices per rack.
@@ -381,6 +386,8 @@ Workbook structure (`export.js`):
     - Visual representation of devices and free space per rack.
   - Experimental cabinet sheet
     - Additional layout for experimenting with rack design.
+  - `Servers`
+    - Host identity, managed-inventory state, groups, network and health state, update state, operating system and rack linkage.
   - IP Dash sheets
     - Device/client listings, networks, scopes, and offline reservations (when IP Dash context is present).
 

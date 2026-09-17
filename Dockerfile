@@ -28,6 +28,7 @@ COPY backend ./
 RUN node --check server.js \
  && node --check db.js \
  && node --check ipdashClient.js \
+ && node --check semaphoreClient.js \
  && node --check export.js \
  && case "$TARGETARCH" in amd64) native_arch=x64 ;; arm64) native_arch=arm64 ;; *) echo "Unsupported architecture: $TARGETARCH" >&2; exit 1 ;; esac \
  && find node_modules/better-sqlite3/prebuilds -type f ! -name "linux-${native_arch}.node" -delete \
@@ -56,7 +57,10 @@ LABEL org.opencontainers.image.title="Rakit" \
       org.opencontainers.image.revision="${APP_REVISION}"
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates dumb-init libstdc++6 tzdata \
+ && apt-get upgrade -y --no-install-recommends \
+ && apt-get install -y --no-install-recommends ca-certificates dumb-init iputils-ping libcap2-bin libstdc++6 tzdata \
+ && find /usr/bin /usr/sbin -xdev -type f -perm /6000 -exec chmod a-s {} + \
+ && setcap cap_net_raw=ep /bin/ping \
  && rm -rf /var/lib/apt/lists/* \
  && groupadd --gid 1000 node \
  && useradd --uid 1000 --gid node --home-dir /nonexistent --shell /usr/sbin/nologin --no-create-home node \

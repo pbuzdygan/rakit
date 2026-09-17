@@ -12,6 +12,9 @@
 - ✅ Installable PWA – standalone launch with an offline application shell
 - ✅ Manage multiple IT rack cabinets
 - ✅ Manage IP reservations including entire IP scopes
+- ✅ Manage servers and Ansible inventory groups
+- ✅ Integrate with Semaphore UI for update checks, package updates and reboots
+- ✅ Keep the Servers catalogue usable without Semaphore and publish it after connecting later
 - ✅ Designed for self-hosting (Docker, docker-compose, reverse proxy friendly)
 - ✅ Secured with encryption key
 
@@ -69,7 +72,8 @@ services:
     user: "1000:1000"
     read_only: true
     cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
+    # Used only by /bin/ping for the Servers reachability check.
+    cap_add: [NET_RAW]
     pids_limit: 128
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=64m
@@ -105,6 +109,16 @@ services:
       # Optional WOL reachability tuning (milliseconds)
       # - WOL_PROBE_TIMEOUT_MS=1200
       # - WOL_STATUS_CACHE_MS=20000
+      # Optional Servers network reachability tuning (ICMP ping by default)
+      # Modes: icmp, tcp, icmp-tcp. TCP probing is opt-in because it may trigger IDS rules.
+      # - SERVER_PROBE_MODE=icmp
+      # - SERVER_PROBE_TIMEOUT_MS=1500
+      # - SERVER_PROBE_INTERVAL_MS=60000
+      # Optional Semaphore integration HTTP client tuning
+      # - SEMAPHORE_TIMEOUT_MS=15000
+      # - SEMAPHORE_MAX_RESPONSE_MB=10
+      # Enable only when Semaphore is intentionally reached through 127.0.0.1/localhost
+      # - SEMAPHORE_ALLOW_LOOPBACK=false
       - NODE_ENV=production
 
 ```

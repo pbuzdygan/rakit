@@ -2,6 +2,38 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.0] - 2026-09-17
+
+### New features
+- Added the Servers workspace: a local server catalogue with groups, tags, location, role, operating system, management addresses and Ansible connection settings.
+- Added optional Semaphore integration for publishing a Rakit-managed static inventory and running explicitly mapped update-check, update and reboot templates.
+- Added server update state, security update counts, reboot-required status, operation history and direct Cockpit, Semaphore and SSH links.
+- Added ready-to-import Semaphore project backup, setup documentation and Ansible playbooks for update checks, controlled upgrades, reboot and health facts.
+
+### Improvements
+- Rakit is the source of truth for managed servers. Server and group management remains fully available without a configured or reachable Semaphore instance.
+- Servers entered before enabling Semaphore are retained locally and included when the generated inventory is first reviewed and published.
+- Semaphore API tokens are encrypted at rest and never exposed to the frontend after saving; SSH and privilege-escalation credentials remain in Semaphore Key Store.
+- Inventory publication detects out-of-band changes and requires an explicit review before adopting or replacing a Semaphore inventory.
+- Runtime base packages receive current Debian security fixes during image builds; the full Trivy runtime scan now runs monthly or on demand and reports findings without blocking image publication.
+- Semaphore tasks launched from Rakit are reconciled in the backend even when the Servers screen is closed, and unfinished actions resume visible polling when the inspector is reopened.
+- Server health checks can now be launched from Rakit; successful health or update checks set the host online and retain kernel and uptime facts.
+- Added per-server managed-inventory synchronization indicators and the timestamp/result of the latest package update.
+- Added an independent per-server network reachability signal, refreshed with one ICMP echo to the management address every minute; TCP probing remains available only as an explicit opt-in.
+- Separated health from package checks: only health tasks now update the Health state and Last health timestamp.
+- Scheduled Semaphore tasks now import per-host health, update-check, package-update and reboot results, while tasks launched manually in Semaphore remain external to Rakit.
+- Improved the Servers mobile layout with compact server cards, responsive controls and a full-width inspector without edge shadows.
+- Updated snapshot export module names to match the current navigation and added a detailed Servers worksheet.
+
+### Bug fixes
+- Fixed explicit `Ports per row` layouts using odd/even port placement instead of filling each row sequentially.
+- Fixed successful Semaphore tasks remaining indefinitely in Running when the user navigated away before completion.
+- Fixed update results being missed when Semaphore wraps the `RAKIT_RESULT_V1` JSON across multiple output lines.
+- Fixed update and health result collection by reading Semaphore's plain-text task log endpoint, removing terminal colour codes and retaining a compatibility fallback to the structured output endpoint.
+- Added an explicit root privilege preflight to update-check, package-update and reboot playbooks so missing Semaphore sudo credentials fail before APT or reboot operations.
+- Fixed multi-host scheduled task results updating only one server, and use the Semaphore completion time for imported results.
+- Normalized common backslash variants of IANA time zones such as `europe\\warsaw` to `Europe/Warsaw`.
+
 ## [1.3.0]
 
 ### New features

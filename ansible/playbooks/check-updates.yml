@@ -1,0 +1,67 @@
+---
+- name: Check available package updates
+  hosts: all
+  gather_facts: true
+  become: true
+  become_method: sudo
+  become_user: root
+  serial: 10
+
+  pre_tasks:
+    - name: Verify privilege escalation to root
+      ansible.builtin.command: /usr/bin/id -u
+      register: rakit_effective_uid
+      changed_when: false
+      become: true
+
+    - name: Require effective root privileges
+      ansible.builtin.assert:
+        that:
+          - rakit_effective_uid.stdout | trim == '0'
+        fail_msg: >-
+          Sudo privilege escalation is not active. Configure the inventory Become Key
+          in Semaphore or install the documented NOPASSWD rule for the SSH user.
+
+  tasks:
+    - name: Require a Debian-family target
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.os_family == 'Debian'
+        fail_msg: This update check currently supports Debian and Ubuntu hosts only.
+
+    - name: Refresh the APT package cache
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+      changed_when: false
+
+    - name: Simulate a distribution upgrade
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/apt-get
+          - --simulate
+          - dist-upgrade
+      register: rakit_apt_simulation
+      changed_when: false
+
+    - name: Read the reboot-required marker
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+      register: rakit_reboot_marker
+
+    - name: Build the package update summary
+      ansible.builtin.set_fact:
+        rakit_update_lines: "{{ rakit_apt_simulation.stdout_lines | select('match', '^Inst ') | list }}"
+        rakit_security_lines: "{{ rakit_apt_simulation.stdout_lines | select('match', '^Inst .*[-/]security(?:[ /]|$)') | list }}"
+
+    - name: Emit the versioned Rakit result
+      ansible.builtin.debug:
+        msg: >-
+          RAKIT_RESULT_V1={{ {
+            'host': inventory_hostname,
+            'updates': rakit_update_lines | length,
+            'security': rakit_security_lines | length,
+            'rebootRequired': rakit_reboot_marker.stat.exists | default(false),
+            'kernel': ansible_facts.kernel,
+            'uptimeSeconds': ansible_facts.uptime_seconds | default(0)
+          } | to_json }}

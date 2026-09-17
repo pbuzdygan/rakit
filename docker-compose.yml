@@ -7,8 +7,9 @@ services:
     read_only: true
     cap_drop:
       - ALL
-    security_opt:
-      - no-new-privileges:true
+    # Required only by /bin/ping, which receives this capability via its file metadata.
+    cap_add:
+      - NET_RAW
     pids_limit: 128
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=64m

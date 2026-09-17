@@ -346,7 +346,7 @@ export function AddDeviceModal() {
                   value={portsPerRow}
                   onChange={(e) => setPortsPerRow(e.target.value)}
                 />
-                <p className="type-caption text-textSec">Leave empty for automatic layout: up to 24 ports in one row; larger devices split evenly into two rows.</p>
+                <p className="type-caption text-textSec">Set a value to fill ports sequentially row by row. Leave empty for the automatic odd/even two-row layout on larger devices.</p>
                 {portsPerRowInvalid && (
                   <p className="type-caption text-error">Use {minimumPortsPerRow} for two rows or {parsedPortCount} for one row.</p>
                 )}

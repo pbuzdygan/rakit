@@ -241,3 +241,160 @@ CREATE TABLE IF NOT EXISTS app_meta (
   key TEXT PRIMARY KEY,
   value TEXT
 );
+
+CREATE TABLE IF NOT EXISTS semaphore_profiles (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  api_url TEXT NOT NULL,
+  ui_url TEXT NOT NULL,
+  api_token_encrypted TEXT NOT NULL,
+  project_id INTEGER NOT NULL,
+  inventory_id INTEGER NOT NULL,
+  check_template_id INTEGER,
+  update_template_id INTEGER,
+  reboot_template_id INTEGER,
+  health_template_id INTEGER,
+  allow_self_signed INTEGER NOT NULL DEFAULT 0,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  inventory_last_hash TEXT,
+  inventory_last_synced_at TEXT,
+  inventory_sync_state TEXT NOT NULL DEFAULT 'uninitialized',
+  inventory_sync_error TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  CHECK(inventory_sync_state IN ('uninitialized', 'synced', 'pending', 'conflict', 'failed'))
+);
+
+CREATE TRIGGER IF NOT EXISTS trg_semaphore_profiles_updated_at
+AFTER UPDATE ON semaphore_profiles
+BEGIN
+  UPDATE semaphore_profiles SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+END;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_semaphore_one_active_profile
+ON semaphore_profiles(enabled) WHERE enabled = 1;
+
+CREATE TABLE IF NOT EXISTS servers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  ansible_alias TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  hostname TEXT,
+  primary_ip TEXT NOT NULL,
+  ssh_port INTEGER NOT NULL DEFAULT 22,
+  os_family TEXT NOT NULL DEFAULT 'linux',
+  os_name TEXT,
+  os_version TEXT,
+  environment TEXT,
+  role TEXT,
+  location TEXT,
+  cockpit_url TEXT,
+  notes TEXT,
+  linked_device_id INTEGER,
+  ansible_enabled INTEGER NOT NULL DEFAULT 1,
+  inventory_published_signature TEXT,
+  status TEXT NOT NULL DEFAULT 'unknown',
+  health_checked_at TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY(linked_device_id) REFERENCES cabinet_devices(id) ON DELETE SET NULL,
+  CHECK(ssh_port BETWEEN 1 AND 65535),
+  CHECK(status IN ('unknown', 'online', 'offline', 'error', 'maintenance'))
+);
+
+CREATE TRIGGER IF NOT EXISTS trg_servers_updated_at
+AFTER UPDATE ON servers
+BEGIN
+  UPDATE servers SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+END;
+
+CREATE TABLE IF NOT EXISTS server_network_status (
+  server_id INTEGER PRIMARY KEY,
+  status TEXT NOT NULL DEFAULT 'unknown',
+  checked_at TEXT,
+  latency_ms INTEGER,
+  detail TEXT,
+  FOREIGN KEY(server_id) REFERENCES servers(id) ON DELETE CASCADE,
+  CHECK(status IN ('unknown', 'reachable', 'unreachable'))
+);
+
+CREATE TABLE IF NOT EXISTS server_groups (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  ansible_name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  description TEXT,
+  color TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TRIGGER IF NOT EXISTS trg_server_groups_updated_at
+AFTER UPDATE ON server_groups
+BEGIN
+  UPDATE server_groups SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+END;
+
+CREATE TABLE IF NOT EXISTS server_group_members (
+  server_id INTEGER NOT NULL,
+  group_id INTEGER NOT NULL,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY(server_id, group_id),
+  FOREIGN KEY(server_id) REFERENCES servers(id) ON DELETE CASCADE,
+  FOREIGN KEY(group_id) REFERENCES server_groups(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS server_update_status (
+  server_id INTEGER PRIMARY KEY,
+  updates_available INTEGER,
+  security_updates INTEGER,
+  reboot_required INTEGER,
+  packages_json TEXT,
+  kernel TEXT,
+  uptime_seconds INTEGER,
+  checked_at TEXT,
+  check_result TEXT NOT NULL DEFAULT 'never',
+  source_task_id INTEGER,
+  last_update_at TEXT,
+  last_update_result TEXT,
+  last_update_task_id INTEGER,
+  raw_result_json TEXT,
+  FOREIGN KEY(server_id) REFERENCES servers(id) ON DELETE CASCADE,
+  CHECK(check_result IN ('never', 'ok', 'partial', 'failed', 'stale'))
+);
+
+CREATE TABLE IF NOT EXISTS server_actions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  server_id INTEGER,
+  group_id INTEGER,
+  action TEXT NOT NULL,
+  semaphore_profile_id INTEGER NOT NULL,
+  semaphore_template_id INTEGER NOT NULL,
+  semaphore_task_id INTEGER,
+  target_limit TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'submitting',
+  requested_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  started_at TEXT,
+  finished_at TEXT,
+  result_summary TEXT,
+  error_message TEXT,
+  source TEXT NOT NULL DEFAULT 'rakit',
+  FOREIGN KEY(server_id) REFERENCES servers(id) ON DELETE SET NULL,
+  FOREIGN KEY(group_id) REFERENCES server_groups(id) ON DELETE SET NULL,
+  FOREIGN KEY(semaphore_profile_id) REFERENCES semaphore_profiles(id) ON DELETE RESTRICT,
+  CHECK(action IN ('check_updates', 'update_packages', 'reboot', 'health_check')),
+  CHECK(status IN ('submitting', 'queued', 'running', 'success', 'failed', 'stopped', 'unknown'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_server_actions_server_requested
+ON server_actions(server_id, requested_at DESC);
+
+CREATE TABLE IF NOT EXISTS semaphore_task_imports (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  semaphore_profile_id INTEGER NOT NULL,
+  semaphore_task_id INTEGER NOT NULL,
+  schedule_id INTEGER NOT NULL,
+  semaphore_template_id INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  imported_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY(semaphore_profile_id) REFERENCES semaphore_profiles(id) ON DELETE CASCADE,
+  UNIQUE(semaphore_profile_id, semaphore_task_id)
+);

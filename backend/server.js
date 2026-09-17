@@ -7,7 +7,9 @@ import crypto from 'crypto';
 import dns from 'dns/promises';
 import dgram from 'dgram';
 import net from 'net';
+import { spawn } from 'child_process';
 import { IpDashClient } from './ipdashClient.js';
+import { SemaphoreClient, normalizeSemaphoreUrl } from './semaphoreClient.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -71,8 +73,8 @@ const APP_CHANNEL = process.env.APP_CHANNEL || 'main';
 const REQUESTED_TIME_ZONE = String(process.env.APP_TIME_ZONE || process.env.TZ || 'UTC').trim();
 const APP_TIME_ZONE = (() => {
   try {
-    new Intl.DateTimeFormat('en', { timeZone: REQUESTED_TIME_ZONE }).format();
-    return REQUESTED_TIME_ZONE;
+    const normalized = REQUESTED_TIME_ZONE.replace(/\\/g, '/');
+    return new Intl.DateTimeFormat('en', { timeZone: normalized }).resolvedOptions().timeZone;
   } catch {
     console.warn(`[Time] Invalid time zone "${REQUESTED_TIME_ZONE}"; falling back to UTC`);
     return 'UTC';
@@ -85,6 +87,15 @@ const ENCRYPTION_RESET_MESSAGE =
   'APP_ENC_KEY changed. Restore the previous key or reset encrypted profiles to continue.';
 const MAX_DEVICE_PORTS = 48;
 const AUDIT_RETENTION_DAYS = boundedNumber(process.env.AUDIT_RETENTION_DAYS, 0, 0, 3650);
+const SERVER_PROBE_TIMEOUT_MS = boundedNumber(process.env.SERVER_PROBE_TIMEOUT_MS, 1500, 250, 10000);
+const SERVER_PROBE_INTERVAL_MS = boundedNumber(process.env.SERVER_PROBE_INTERVAL_MS, 60000, 10000, 3600000);
+const REQUESTED_SERVER_PROBE_MODE = String(process.env.SERVER_PROBE_MODE || 'icmp').trim().toLowerCase();
+const SERVER_PROBE_MODE = ['icmp', 'tcp', 'icmp-tcp'].includes(REQUESTED_SERVER_PROBE_MODE)
+  ? REQUESTED_SERVER_PROBE_MODE
+  : 'icmp';
+if (SERVER_PROBE_MODE !== REQUESTED_SERVER_PROBE_MODE) {
+  console.warn(`[Network] Unsupported SERVER_PROBE_MODE "${REQUESTED_SERVER_PROBE_MODE}"; using icmp`);
+}
 const SESSION_COOKIE = 'rakit_session';
 const SESSION_TTL_MS = boundedNumber(process.env.APP_SESSION_TTL_MINUTES, 480, 15, 10080) * 60_000;
 const MAX_SESSIONS = Math.floor(boundedNumber(process.env.APP_MAX_SESSIONS, 256, 16, 4096));
@@ -106,7 +117,11 @@ const upsertMetaValueStmt = db.prepare(
   'INSERT INTO app_meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value'
 );
 const deleteMetaValueStmt = db.prepare('DELETE FROM app_meta WHERE key=?');
-const ipdashProfileCountStmt = db.prepare('SELECT COUNT(1) AS c FROM ipdash_profiles');
+const encryptedProfileCountStmt = db.prepare(`
+  SELECT
+    (SELECT COUNT(1) FROM ipdash_profiles)
+    + (SELECT COUNT(1) FROM semaphore_profiles) AS c
+`);
 
 const getMetaValue = (key) => {
   const row = getMetaValueStmt.get(key);
@@ -121,7 +136,7 @@ const deleteMetaValue = (key) => {
   deleteMetaValueStmt.run(key);
 };
 
-const getEncryptedProfileCount = () => Number(ipdashProfileCountStmt.get()?.c ?? 0);
+const getEncryptedProfileCount = () => Number(encryptedProfileCountStmt.get()?.c ?? 0);
 
 let encryptionKeyMismatch = false;
 let encryptionState = 'unknown';
@@ -356,6 +371,7 @@ const mapDeviceRow = (row) => ({
   managementIp: row.management_ip ?? '',
   assetTag: row.asset_tag ?? '',
   status: row.status ?? 'unknown',
+  lastHealthAt: toUtcISOString(row.health_checked_at),
   face: row.face ?? 'front',
   rackLane: row.rack_lane ?? 'full',
 });
@@ -609,6 +625,97 @@ const mapWithConcurrency = async (items, limit, mapper) => {
   };
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
   return results;
+};
+
+const probeServerIcmp = (serverRow) => new Promise((resolve) => {
+  const startedAt = Date.now();
+  const waitSeconds = Math.max(1, Math.ceil(SERVER_PROBE_TIMEOUT_MS / 1000));
+  const child = spawn('/bin/ping', ['-n', '-q', '-c', '1', '-W', String(waitSeconds), '--', serverRow.primary_ip], {
+    stdio: ['ignore', 'ignore', 'pipe'],
+  });
+  let settled = false;
+  let stderr = '';
+  const finish = (status, detail) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(killTimer);
+    if (child.exitCode === null) child.kill('SIGKILL');
+    resolve({
+      status,
+      latencyMs: Math.max(0, Date.now() - startedAt),
+      detail: clampText(detail, 240),
+    });
+  };
+  child.stderr.on('data', (chunk) => {
+    if (stderr.length < 240) stderr += chunk.toString('utf8');
+  });
+  child.once('error', (error) => finish('unreachable', `ICMP probe unavailable: ${error?.code || error?.message || 'spawn failed'}`));
+  child.once('close', (code) => {
+    if (code === 0) finish('reachable', 'ICMP echo reply');
+    else finish('unreachable', stderr.trim() || 'No ICMP echo reply');
+  });
+  const killTimer = setTimeout(() => finish('unreachable', `No ICMP echo reply within ${SERVER_PROBE_TIMEOUT_MS} ms`), SERVER_PROBE_TIMEOUT_MS);
+  killTimer.unref();
+});
+
+const probeServerTcp = (serverRow) => new Promise((resolve) => {
+  const startedAt = Date.now();
+  const socket = net.createConnection({ host: serverRow.primary_ip, port: serverRow.ssh_port });
+  let settled = false;
+  const finish = (status, detail = '') => {
+    if (settled) return;
+    settled = true;
+    const latencyMs = Math.max(0, Date.now() - startedAt);
+    socket.destroy();
+    resolve({ status, latencyMs, detail: clampText(detail, 240) });
+  };
+  socket.setTimeout(SERVER_PROBE_TIMEOUT_MS);
+  socket.once('connect', () => finish('reachable', `TCP port ${serverRow.ssh_port} accepted a connection`));
+  socket.once('timeout', () => finish('unreachable', `TCP port ${serverRow.ssh_port} timed out after ${SERVER_PROBE_TIMEOUT_MS} ms`));
+  socket.once('error', (error) => {
+    if (error?.code === 'ECONNREFUSED') finish('reachable', `Host reachable; TCP port ${serverRow.ssh_port} is closed`);
+    else finish('unreachable', error?.code || error?.message || 'TCP probe failed');
+  });
+});
+
+const probeServerNetwork = async (serverRow) => {
+  if (SERVER_PROBE_MODE === 'tcp') return probeServerTcp(serverRow);
+  const icmpResult = await probeServerIcmp(serverRow);
+  if (SERVER_PROBE_MODE !== 'icmp-tcp' || icmpResult.status === 'reachable') return icmpResult;
+  const tcpResult = await probeServerTcp(serverRow);
+  return {
+    ...tcpResult,
+    detail: clampText(`ICMP failed; ${tcpResult.detail}`, 240),
+  };
+};
+
+let serverNetworkProbeRunning = false;
+const refreshServerNetworkStatus = async (serverIds = null) => {
+  const isFullRefresh = !Array.isArray(serverIds);
+  if (isFullRefresh && serverNetworkProbeRunning) return;
+  if (isFullRefresh) serverNetworkProbeRunning = true;
+  try {
+    const ids = Array.isArray(serverIds) ? [...new Set(serverIds.map(Number).filter(Number.isInteger))] : [];
+    const rows = ids.length
+      ? db.prepare(`SELECT id, primary_ip, ssh_port FROM servers WHERE id IN (${ids.map(() => '?').join(',')})`).all(...ids)
+      : isFullRefresh ? db.prepare('SELECT id, primary_ip, ssh_port FROM servers ORDER BY id').all() : [];
+    await mapWithConcurrency(rows, 10, async (serverRow) => {
+      const result = await probeServerNetwork(serverRow);
+      try {
+        db.prepare(`
+          INSERT INTO server_network_status(server_id, status, checked_at, latency_ms, detail)
+          VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?)
+          ON CONFLICT(server_id) DO UPDATE SET
+            status=excluded.status, checked_at=CURRENT_TIMESTAMP,
+            latency_ms=excluded.latency_ms, detail=excluded.detail
+        `).run(serverRow.id, result.status, result.latencyMs, result.detail || null);
+      } catch (error) {
+        if (!/FOREIGN KEY/i.test(error?.message || '')) throw error;
+      }
+    });
+  } finally {
+    if (isFullRefresh) serverNetworkProbeRunning = false;
+  }
 };
 
 const listCabinets = () =>
@@ -940,6 +1047,474 @@ const buildIpDashContext = async (payload = {}) => {
     groupTags,
     networkIndex,
   };
+};
+
+const ANSIBLE_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,62}$/;
+const SERVER_STATUS = new Set(['unknown', 'online', 'offline', 'error', 'maintenance']);
+const SEMAPHORE_TERMINAL_TASK_STATES = new Set(['success', 'failed', 'stopped']);
+
+const mapSemaphoreProfileRow = (row) => row ? ({
+  id: row.id,
+  name: row.name,
+  apiUrl: row.api_url,
+  uiUrl: row.ui_url,
+  projectId: row.project_id,
+  inventoryId: row.inventory_id,
+  checkTemplateId: row.check_template_id ?? null,
+  updateTemplateId: row.update_template_id ?? null,
+  rebootTemplateId: row.reboot_template_id ?? null,
+  healthTemplateId: row.health_template_id ?? null,
+  allowSelfSigned: Boolean(row.allow_self_signed),
+  enabled: Boolean(row.enabled),
+  hasToken: Boolean(row.api_token_encrypted),
+  inventoryLastSyncedAt: toUtcISOString(row.inventory_last_synced_at),
+  inventorySyncState: row.inventory_sync_state ?? 'uninitialized',
+  inventorySyncError: row.inventory_sync_error ?? '',
+  createdAt: toUtcISOString(row.created_at),
+  updatedAt: toUtcISOString(row.updated_at),
+}) : null;
+
+const getSemaphoreProfileRow = () =>
+  db.prepare('SELECT * FROM semaphore_profiles WHERE enabled=1 ORDER BY id DESC LIMIT 1').get() ?? null;
+
+const createSemaphoreClient = (profileRow, tokenOverride = '') => {
+  if (!profileRow && !tokenOverride) throw new Error('Semaphore profile is not configured');
+  const token = tokenOverride || decryptSecret(profileRow.api_token_encrypted);
+  return new SemaphoreClient(profileRow?.api_url, token, {
+    allowSelfSigned: Boolean(profileRow?.allow_self_signed),
+  });
+};
+
+const normalizeManagedAddress = (value) => {
+  const address = clampText(value, 255);
+  if (!address || /\s/.test(address)) return '';
+  if (net.isIP(address)) return address;
+  return /^[a-zA-Z0-9](?:[a-zA-Z0-9.-]{0,253}[a-zA-Z0-9])?$/.test(address) ? address : '';
+};
+
+const normalizeExternalUrl = (value) => {
+  const candidate = clampText(value, 500);
+  if (!candidate) return '';
+  try {
+    const url = new URL(/^https?:\/\//i.test(candidate) ? candidate : `https://${candidate}`);
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return '';
+    return url.toString().replace(/\/$/, '');
+  } catch {
+    return '';
+  }
+};
+
+const serverGroupsFor = (serverId) => db.prepare(`
+  SELECT g.id, g.name, g.ansible_name, g.description, g.color
+  FROM server_groups g
+  JOIN server_group_members m ON m.group_id=g.id
+  WHERE m.server_id=?
+  ORDER BY g.name COLLATE NOCASE
+`).all(serverId).map((group) => ({
+  id: group.id,
+  name: group.name,
+  ansibleName: group.ansible_name,
+  description: group.description ?? '',
+  color: group.color ?? '',
+}));
+
+const serverInventorySignature = (server, groups = serverGroupsFor(server.id)) => inventoryHash(JSON.stringify({
+  alias: server.ansible_alias ?? server.ansibleAlias,
+  address: server.primary_ip ?? server.primaryIp,
+  port: server.ssh_port ?? server.sshPort,
+  groups: groups.map((group) => group.ansibleName).sort(),
+}));
+
+const mapServerRow = (row) => {
+  const groups = serverGroupsFor(row.id);
+  const profile = getSemaphoreProfileRow();
+  const ansibleEnabled = Boolean(row.ansible_enabled);
+  const inventorySyncState = !ansibleEnabled ? 'disabled'
+    : profile?.inventory_last_hash && row.inventory_published_signature === serverInventorySignature(row, groups) ? 'synced' : 'pending';
+  return ({
+  id: row.id,
+  name: row.name,
+  ansibleAlias: row.ansible_alias,
+  hostname: row.hostname ?? '',
+  primaryIp: row.primary_ip,
+  sshPort: row.ssh_port,
+  osFamily: row.os_family ?? 'linux',
+  osName: row.os_name ?? '',
+  osVersion: row.os_version ?? '',
+  environment: row.environment ?? '',
+  role: row.role ?? '',
+  location: row.location ?? '',
+  cockpitUrl: row.cockpit_url ?? '',
+  notes: row.notes ?? '',
+  linkedDeviceId: row.linked_device_id ?? null,
+  linkedDeviceLabel: row.linked_device_id
+    ? [row.cabinet_name, row.device_type, row.device_model].filter(Boolean).join(' · ')
+    : '',
+  ansibleEnabled,
+  inventorySyncState,
+  status: row.status ?? 'unknown',
+  groups,
+  updates: row.updates_available ?? null,
+  securityUpdates: row.security_updates ?? null,
+  rebootRequired: row.reboot_required == null ? null : Boolean(row.reboot_required),
+  kernel: row.kernel ?? '',
+  uptimeSeconds: row.uptime_seconds ?? null,
+  lastCheckedAt: toUtcISOString(row.checked_at),
+  checkResult: row.check_result ?? 'never',
+  lastUpdateAt: toUtcISOString(row.last_update_at),
+  lastUpdateResult: row.last_update_result ?? 'never',
+  networkStatus: row.network_status ?? 'unknown',
+  networkCheckedAt: toUtcISOString(row.network_checked_at),
+  networkLatencyMs: row.network_latency_ms ?? null,
+  networkDetail: row.network_detail ?? '',
+  createdAt: toUtcISOString(row.created_at),
+  updatedAt: toUtcISOString(row.updated_at),
+  });
+};
+
+const SERVER_SELECT = `
+  SELECT s.*, u.updates_available, u.security_updates, u.reboot_required,
+    u.kernel, u.uptime_seconds, u.checked_at, u.check_result,
+    n.status AS network_status, n.checked_at AS network_checked_at,
+    n.latency_ms AS network_latency_ms, n.detail AS network_detail,
+    d.device_type, d.model AS device_model, c.name AS cabinet_name
+  FROM servers s
+  LEFT JOIN server_update_status u ON u.server_id=s.id
+  LEFT JOIN server_network_status n ON n.server_id=s.id
+  LEFT JOIN cabinet_devices d ON d.id=s.linked_device_id
+  LEFT JOIN cabinets c ON c.id=d.cabinet_id
+`;
+
+const getServer = (id) => {
+  const row = db.prepare(`${SERVER_SELECT} WHERE s.id=?`).get(id);
+  return row ? mapServerRow(row) : null;
+};
+
+const listServers = () => db.prepare(`${SERVER_SELECT} ORDER BY s.name COLLATE NOCASE`).all().map(mapServerRow);
+
+const mapServerGroupRow = (row) => ({
+  id: row.id,
+  name: row.name,
+  ansibleName: row.ansible_name,
+  description: row.description ?? '',
+  color: row.color ?? '',
+  serverCount: Number(row.server_count ?? 0),
+  createdAt: toUtcISOString(row.created_at),
+  updatedAt: toUtcISOString(row.updated_at),
+});
+
+const listServerGroups = () => db.prepare(`
+  SELECT g.*, COUNT(m.server_id) AS server_count
+  FROM server_groups g
+  LEFT JOIN server_group_members m ON m.group_id=g.id
+  GROUP BY g.id
+  ORDER BY g.name COLLATE NOCASE
+`).all().map(mapServerGroupRow);
+
+const normalizeInventoryContent = (value) => String(value ?? '').replace(/\r\n?/g, '\n').trimEnd() + '\n';
+const inventoryHash = (value) => crypto.createHash('sha256').update(normalizeInventoryContent(value), 'utf8').digest('hex');
+
+const generateManagedInventory = () => {
+  const servers = db.prepare('SELECT * FROM servers WHERE ansible_enabled=1 ORDER BY ansible_alias COLLATE NOCASE').all();
+  const groups = db.prepare('SELECT * FROM server_groups ORDER BY ansible_name COLLATE NOCASE').all();
+  const memberships = db.prepare(`
+    SELECT m.group_id, s.ansible_alias
+    FROM server_group_members m
+    JOIN servers s ON s.id=m.server_id
+    WHERE s.ansible_enabled=1
+    ORDER BY s.ansible_alias COLLATE NOCASE
+  `).all();
+  const lines = [
+    '# Managed by Rakit. Manual changes will cause a synchronization conflict.',
+    '',
+    '[rakit_managed]',
+    ...servers.map((server) => `${server.ansible_alias} ansible_host=${server.primary_ip} ansible_port=${server.ssh_port}`),
+  ];
+  for (const group of groups) {
+    lines.push('', `[${group.ansible_name}]`);
+    for (const member of memberships.filter((item) => item.group_id === group.id)) lines.push(member.ansible_alias);
+  }
+  return `${lines.join('\n')}\n`;
+};
+
+const setInventorySyncState = (profileId, state, error = null, hash = null) => {
+  db.prepare(`
+    UPDATE semaphore_profiles
+    SET inventory_sync_state=?, inventory_sync_error=?,
+      inventory_last_hash=COALESCE(?, inventory_last_hash),
+      inventory_last_synced_at=CASE WHEN ?='synced' THEN CURRENT_TIMESTAMP ELSE inventory_last_synced_at END
+    WHERE id=?
+  `).run(state, error, hash, state, profileId);
+};
+
+const syncSemaphoreInventory = async ({ force = false } = {}) => {
+  const profile = getSemaphoreProfileRow();
+  if (!profile) throw new Error('Semaphore profile is not configured');
+  const client = createSemaphoreClient(profile);
+  const desired = generateManagedInventory();
+  try {
+    const remote = await client.getInventory(profile.project_id, profile.inventory_id);
+    const remoteContent = normalizeInventoryContent(remote?.inventory ?? '');
+    const remoteHash = inventoryHash(remoteContent);
+    if (!force && !profile.inventory_last_hash) {
+      setInventorySyncState(profile.id, 'uninitialized', 'Review and adopt the inventory before the first publish.');
+      return { ok: false, state: 'uninitialized', desired, remote: remoteContent };
+    }
+    if (!force && remoteHash !== profile.inventory_last_hash) {
+      setInventorySyncState(profile.id, 'conflict', 'Inventory was changed outside Rakit.');
+      recordAudit({ action: 'Semaphore inventory conflict', objectType: 'semaphore_inventory', objectId: profile.inventory_id, details: profile.name, result: 'error' });
+      return { ok: false, state: 'conflict', desired, remote: remoteContent };
+    }
+    const payload = { ...remote, inventory: desired };
+    delete payload.created;
+    delete payload.updated;
+    await client.updateInventory(profile.project_id, profile.inventory_id, payload);
+    const hash = inventoryHash(desired);
+    const markPublished = db.transaction(() => {
+      const enabled = db.prepare('SELECT * FROM servers WHERE ansible_enabled=1').all();
+      const update = db.prepare('UPDATE servers SET inventory_published_signature=? WHERE id=?');
+      for (const server of enabled) update.run(serverInventorySignature(server), server.id);
+      db.prepare('UPDATE servers SET inventory_published_signature=NULL WHERE ansible_enabled=0').run();
+      setInventorySyncState(profile.id, 'synced', null, hash);
+    });
+    markPublished();
+    recordAudit({ action: force ? 'Semaphore inventory adopted' : 'Semaphore inventory synchronized', objectType: 'semaphore_inventory', objectId: profile.inventory_id, details: `${listServers().filter((server) => server.ansibleEnabled).length} managed servers` });
+    return { ok: true, state: 'synced', content: desired, hash };
+  } catch (error) {
+    setInventorySyncState(profile.id, 'failed', clampText(error?.message || 'Inventory synchronization failed', 500));
+    recordAudit({ action: 'Semaphore inventory synchronization failed', objectType: 'semaphore_inventory', objectId: profile.inventory_id, details: error?.message || 'Unknown error', result: 'error' });
+    throw error;
+  }
+};
+
+const syncAfterCatalogChange = async () => {
+  const profile = getSemaphoreProfileRow();
+  if (!profile || profile.inventory_sync_state === 'uninitialized' || profile.inventory_sync_state === 'conflict') {
+    return mapSemaphoreProfileRow(profile);
+  }
+  setInventorySyncState(profile.id, 'pending');
+  try { await syncSemaphoreInventory(); } catch { /* The catalog write remains authoritative. */ }
+  return mapSemaphoreProfileRow(getSemaphoreProfileRow());
+};
+
+const replaceServerMemberships = (serverId, rawGroupIds) => {
+  const groupIds = [...new Set((Array.isArray(rawGroupIds) ? rawGroupIds : []).map(Number).filter(Number.isInteger))];
+  const replace = db.transaction(() => {
+    db.prepare('DELETE FROM server_group_members WHERE server_id=?').run(serverId);
+    const insert = db.prepare('INSERT INTO server_group_members(server_id, group_id) VALUES (?, ?)');
+    for (const groupId of groupIds) {
+      if (!db.prepare('SELECT id FROM server_groups WHERE id=?').get(groupId)) throw new Error(`Server group ${groupId} does not exist`);
+      insert.run(serverId, groupId);
+    }
+  });
+  replace();
+};
+
+const mapSemaphoreTaskStatus = (status) => {
+  const value = String(status || '').toLowerCase();
+  if (['success', 'successful'].includes(value)) return 'success';
+  if (['error', 'failed'].includes(value)) return 'failed';
+  if (['stopped', 'canceled', 'cancelled'].includes(value)) return 'stopped';
+  if (['starting', 'running'].includes(value)) return 'running';
+  if (['waiting', 'queued', 'pending'].includes(value)) return 'queued';
+  return 'unknown';
+};
+
+const mapServerActionRow = (row) => ({
+  id: row.id,
+  serverId: row.server_id ?? null,
+  groupId: row.group_id ?? null,
+  action: row.action,
+  semaphoreTaskId: row.semaphore_task_id ?? null,
+  templateId: row.semaphore_template_id,
+  target: row.target_limit,
+  status: row.status,
+  requestedAt: toUtcISOString(row.requested_at),
+  startedAt: toUtcISOString(row.started_at),
+  finishedAt: toUtcISOString(row.finished_at),
+  resultSummary: row.result_summary ?? '',
+  errorMessage: row.error_message ?? '',
+  source: row.source ?? 'rakit',
+});
+
+const extractMarkerJsonRecords = (text, marker) => {
+  const records = [];
+  let offset = 0;
+  while (offset < text.length) {
+    const markerIndex = text.indexOf(marker, offset);
+    if (markerIndex < 0) break;
+    const start = text.indexOf('{', markerIndex + marker.length);
+    if (start < 0) break;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    let end = -1;
+    for (let index = start; index < text.length; index += 1) {
+      const character = text[index];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (character === '\\') escaped = true;
+        else if (character === '"') inString = false;
+        continue;
+      }
+      if (character === '"') inString = true;
+      else if (character === '{') depth += 1;
+      else if (character === '}' && --depth === 0) { end = index + 1; break; }
+    }
+    if (end < 0) break;
+    records.push(text.slice(start, end));
+    offset = end;
+  }
+  return records;
+};
+
+const semaphoreOutputText = (output) => {
+  const stripTerminalFormatting = (value) => String(value ?? '')
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '');
+  if (typeof output === 'string') return stripTerminalFormatting(output);
+  const entries = Array.isArray(output) ? output : output?.output ?? [];
+  const text = Array.isArray(entries)
+    ? entries.map((entry) => typeof entry === 'string' ? entry : entry?.output ?? '').join('\n')
+    : String(entries ?? '');
+  return stripTerminalFormatting(text);
+};
+
+const getSemaphoreTaskOutput = async (client, projectId, taskId) => {
+  try {
+    return await client.getTaskRawOutput(projectId, taskId);
+  } catch (error) {
+    if (![404, 405].includes(Number(error?.status))) throw error;
+    return client.getTaskOutput(projectId, taskId);
+  }
+};
+
+const parseRakitTaskResult = (output, expectedAlias) => {
+  const records = extractMarkerJsonRecords(semaphoreOutputText(output), 'RAKIT_RESULT_V1=');
+  for (let index = records.length - 1; index >= 0; index -= 1) {
+    for (const candidate of [records[index], records[index].replace(/\\"/g, '"').replace(/\\\\/g, '\\')]) {
+      try {
+      const result = JSON.parse(candidate);
+      if (result.host !== expectedAlias) continue;
+      const updates = Number(result.updates);
+      const security = Number(result.security);
+      if (!Number.isInteger(updates) || updates < 0 || !Number.isInteger(security) || security < 0) continue;
+      return {
+        host: result.host,
+        updates,
+        security,
+        rebootRequired: Boolean(result.rebootRequired),
+        kernel: clampText(result.kernel, 120),
+        uptimeSeconds: Number.isFinite(Number(result.uptimeSeconds)) ? Math.max(0, Math.floor(Number(result.uptimeSeconds))) : null,
+      };
+      } catch { /* Try the normalized callback representation next. */ }
+    }
+  }
+  return null;
+};
+
+const parseRakitHealthResult = (output, expectedAlias) => {
+  const records = extractMarkerJsonRecords(semaphoreOutputText(output), 'RAKIT_HEALTH_V1=');
+  for (let index = records.length - 1; index >= 0; index -= 1) {
+    for (const candidate of [records[index], records[index].replace(/\\"/g, '"').replace(/\\\\/g, '\\')]) {
+      try {
+        const result = JSON.parse(candidate);
+        if (result.host !== expectedAlias) continue;
+        const numeric = (value, maximum) => {
+          const parsed = Number(value);
+          return Number.isFinite(parsed) ? Math.min(maximum, Math.max(0, Math.floor(parsed))) : null;
+        };
+        return {
+          host: result.host,
+          kernel: clampText(result.kernel, 120),
+          uptimeSeconds: numeric(result.uptimeSeconds, Number.MAX_SAFE_INTEGER),
+          memoryMb: numeric(result.memoryMb, 100_000_000),
+          processorVcpus: numeric(result.processorVcpus, 1_000_000),
+          rootDiskPercent: numeric(result.rootDiskPercent, 100),
+        };
+      } catch { /* Try the normalized callback representation next. */ }
+    }
+  }
+  return null;
+};
+
+const parseRakitOperationResult = (output, expectedAlias, expectedAction) => {
+  const records = extractMarkerJsonRecords(semaphoreOutputText(output), 'RAKIT_OPERATION_V1=');
+  for (let index = records.length - 1; index >= 0; index -= 1) {
+    for (const candidate of [records[index], records[index].replace(/\\"/g, '"').replace(/\\\\/g, '\\')]) {
+      try {
+        const result = JSON.parse(candidate);
+        if (result.host !== expectedAlias || result.action !== expectedAction) continue;
+        return {
+          host: result.host,
+          action: result.action,
+          changed: Boolean(result.changed),
+          rebootRequired: result.rebootRequired == null ? null : Boolean(result.rebootRequired),
+        };
+      } catch { /* Try the normalized callback representation next. */ }
+    }
+  }
+  return null;
+};
+
+const resultTimeSql = 'COALESCE(datetime(?), CURRENT_TIMESTAMP)';
+
+const saveUpdateCheckResult = (serverId, result, taskId, finishedAt) => {
+  return db.prepare(`
+    INSERT INTO server_update_status(server_id, updates_available, security_updates, reboot_required, kernel, uptime_seconds, checked_at, check_result, source_task_id, raw_result_json)
+    VALUES (?, ?, ?, ?, ?, ?, ${resultTimeSql}, 'ok', ?, ?)
+    ON CONFLICT(server_id) DO UPDATE SET
+      updates_available=excluded.updates_available, security_updates=excluded.security_updates,
+      reboot_required=excluded.reboot_required, kernel=excluded.kernel, uptime_seconds=excluded.uptime_seconds,
+      checked_at=excluded.checked_at, check_result='ok', source_task_id=excluded.source_task_id,
+      raw_result_json=excluded.raw_result_json
+    WHERE server_update_status.checked_at IS NULL OR datetime(excluded.checked_at) >= datetime(server_update_status.checked_at)
+  `).run(serverId, result.updates, result.security, result.rebootRequired ? 1 : 0, result.kernel || null, result.uptimeSeconds, finishedAt, taskId, JSON.stringify(result));
+};
+
+const saveHealthStatus = (serverId, healthStatus, finishedAt) => db.prepare(`
+  UPDATE servers
+  SET status=CASE WHEN status='maintenance' THEN status ELSE ? END,
+      health_checked_at=${resultTimeSql}
+  WHERE id=? AND (health_checked_at IS NULL OR datetime(health_checked_at) <= ${resultTimeSql})
+`).run(healthStatus, finishedAt, serverId, finishedAt);
+
+const saveHealthResult = (serverId, result, finishedAt) => {
+  const save = db.transaction(() => {
+    const state = saveHealthStatus(serverId, 'online', finishedAt);
+    if (!state.changes) return state;
+    db.prepare(`
+      INSERT INTO server_update_status(server_id, kernel, uptime_seconds)
+      VALUES (?, ?, ?)
+      ON CONFLICT(server_id) DO UPDATE SET kernel=excluded.kernel, uptime_seconds=excluded.uptime_seconds
+    `).run(serverId, result.kernel || null, result.uptimeSeconds);
+    return state;
+  });
+  return save();
+};
+
+const saveHealthFailure = (serverId, finishedAt) => saveHealthStatus(serverId, 'error', finishedAt);
+
+const saveUpdateOperationResult = (serverId, result, taskId, finishedAt) => {
+  db.prepare(`
+    INSERT INTO server_update_status(server_id, updates_available, security_updates, reboot_required, check_result, last_update_at, last_update_result, last_update_task_id)
+    VALUES (?, NULL, NULL, ?, 'stale', ${resultTimeSql}, 'success', ?)
+    ON CONFLICT(server_id) DO UPDATE SET
+      updates_available=NULL, security_updates=NULL,
+      reboot_required=excluded.reboot_required,
+      check_result='stale', last_update_at=excluded.last_update_at,
+      last_update_result='success', last_update_task_id=excluded.last_update_task_id
+    WHERE server_update_status.last_update_at IS NULL OR datetime(excluded.last_update_at) >= datetime(server_update_status.last_update_at)
+  `).run(serverId, result?.rebootRequired == null ? null : result.rebootRequired ? 1 : 0, finishedAt, taskId);
+};
+
+const saveFailedUpdateOperation = (serverId, taskId, finishedAt) => {
+  db.prepare(`
+    INSERT INTO server_update_status(server_id, check_result, last_update_at, last_update_result, last_update_task_id)
+    VALUES (?, 'stale', ${resultTimeSql}, 'failed', ?)
+    ON CONFLICT(server_id) DO UPDATE SET
+      last_update_at=excluded.last_update_at, last_update_result='failed', last_update_task_id=excluded.last_update_task_id
+    WHERE server_update_status.last_update_at IS NULL OR datetime(excluded.last_update_at) >= datetime(server_update_status.last_update_at)
+  `).run(serverId, finishedAt, taskId);
 };
 
 app.disable('x-powered-by');
@@ -1698,6 +2273,503 @@ app.delete('/api/port-connections/:connectionId', (req,res)=>{
   res.json({ ok: true });
 });
 
+app.get('/api/semaphore/profile', (_req, res) => {
+  res.json({
+    profile: mapSemaphoreProfileRow(getSemaphoreProfileRow()),
+    encryptionKeyMismatch,
+    appEncKeyConfigured: Boolean(APP_ENC_KEY),
+  });
+});
+
+app.post('/api/semaphore/profile/test', async (req, res) => {
+  if (!guardEncryptionReady(res)) return;
+  const current = getSemaphoreProfileRow();
+  const apiUrl = normalizeSemaphoreUrl(req.body?.apiUrl || current?.api_url);
+  const token = typeof req.body?.apiToken === 'string' && req.body.apiToken.trim()
+    ? req.body.apiToken.trim()
+    : current ? decryptSecret(current.api_token_encrypted) : '';
+  if (!apiUrl) return res.status(400).json({ error: 'Valid Semaphore API URL required' });
+  if (!token) return res.status(400).json({ error: 'Semaphore API token required' });
+  try {
+    const client = new SemaphoreClient(apiUrl, token, { allowSelfSigned: req.body?.allowSelfSigned === true });
+    const discovered = await client.discover(req.body?.projectId);
+    res.json({ ok: true, ...discovered });
+  } catch (error) {
+    res.status(502).json({ error: error?.message || 'Failed to connect to Semaphore' });
+  }
+});
+
+app.post('/api/semaphore/profile', (req, res) => {
+  if (!guardEncryptionReady(res)) return;
+  if (getSemaphoreProfileRow()) return res.status(409).json({ error: 'An active Semaphore profile already exists' });
+  const name = clampText(req.body?.name, 120);
+  const apiUrl = normalizeSemaphoreUrl(req.body?.apiUrl);
+  const uiUrl = normalizeSemaphoreUrl(req.body?.uiUrl || req.body?.apiUrl);
+  const token = typeof req.body?.apiToken === 'string' ? req.body.apiToken.trim() : '';
+  const projectId = Number(req.body?.projectId);
+  const inventoryId = Number(req.body?.inventoryId);
+  if (!name || !apiUrl || !uiUrl || !token) return res.status(400).json({ error: 'Name, URLs and API token are required' });
+  if (!Number.isInteger(projectId) || projectId < 1 || !Number.isInteger(inventoryId) || inventoryId < 1) {
+    return res.status(400).json({ error: 'Valid project and inventory are required' });
+  }
+  const templateId = (value) => Number.isInteger(Number(value)) && Number(value) > 0 ? Number(value) : null;
+  try {
+    const info = db.prepare(`
+      INSERT INTO semaphore_profiles(
+        name, api_url, ui_url, api_token_encrypted, project_id, inventory_id,
+        check_template_id, update_template_id, reboot_template_id, health_template_id,
+        allow_self_signed, enabled
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+    `).run(
+      name, apiUrl, uiUrl, encryptSecret(token), projectId, inventoryId,
+      templateId(req.body?.checkTemplateId), templateId(req.body?.updateTemplateId),
+      templateId(req.body?.rebootTemplateId), templateId(req.body?.healthTemplateId),
+      req.body?.allowSelfSigned === true ? 1 : 0,
+    );
+    refreshEncryptionKeyState();
+    recordAudit({ action: 'Semaphore integration configured', objectType: 'semaphore_profile', objectId: info.lastInsertRowid, details: name });
+    res.status(201).json({ ok: true, profile: mapSemaphoreProfileRow(getSemaphoreProfileRow()) });
+  } catch (error) {
+    res.status(400).json({ error: error?.message || 'Could not save Semaphore profile' });
+  }
+});
+
+app.patch('/api/semaphore/profile/:profileId', (req, res) => {
+  if (!guardEncryptionReady(res)) return;
+  const profileId = Number(req.params.profileId);
+  const current = db.prepare('SELECT * FROM semaphore_profiles WHERE id=?').get(profileId);
+  if (!current) return res.status(404).json({ error: 'Semaphore profile not found' });
+  const sets = [];
+  const values = [];
+  const assign = (column, value) => { sets.push(`${column}=?`); values.push(value); };
+  if ('name' in req.body) {
+    const name = clampText(req.body.name, 120);
+    if (!name) return res.status(400).json({ error: 'Profile name required' });
+    assign('name', name);
+  }
+  if ('apiUrl' in req.body) {
+    const value = normalizeSemaphoreUrl(req.body.apiUrl);
+    if (!value) return res.status(400).json({ error: 'Valid API URL required' });
+    assign('api_url', value);
+  }
+  if ('uiUrl' in req.body) {
+    const value = normalizeSemaphoreUrl(req.body.uiUrl);
+    if (!value) return res.status(400).json({ error: 'Valid UI URL required' });
+    assign('ui_url', value);
+  }
+  if ('apiToken' in req.body && req.body.apiToken) assign('api_token_encrypted', encryptSecret(String(req.body.apiToken).trim()));
+  for (const [input, column] of [
+    ['projectId', 'project_id'], ['inventoryId', 'inventory_id'],
+    ['checkTemplateId', 'check_template_id'], ['updateTemplateId', 'update_template_id'],
+    ['rebootTemplateId', 'reboot_template_id'], ['healthTemplateId', 'health_template_id'],
+  ]) {
+    if (!(input in req.body)) continue;
+    const value = req.body[input] == null || req.body[input] === '' ? null : Number(req.body[input]);
+    if (value != null && (!Number.isInteger(value) || value < 1)) return res.status(400).json({ error: `${input} must be a positive integer` });
+    if (['project_id', 'inventory_id'].includes(column) && value == null) return res.status(400).json({ error: `${input} is required` });
+    assign(column, value);
+  }
+  if ('allowSelfSigned' in req.body) assign('allow_self_signed', req.body.allowSelfSigned === true ? 1 : 0);
+  if (!sets.length) return res.status(400).json({ error: 'Nothing to update' });
+  const inventoryTargetChanged = sets.some((set) => set.startsWith('project_id=') || set.startsWith('inventory_id='));
+  if (inventoryTargetChanged) {
+    assign('inventory_last_hash', null);
+    assign('inventory_sync_state', 'uninitialized');
+    assign('inventory_sync_error', null);
+  }
+  values.push(profileId);
+  db.prepare(`UPDATE semaphore_profiles SET ${sets.join(', ')} WHERE id=?`).run(...values);
+  if (inventoryTargetChanged) {
+    db.prepare('UPDATE servers SET inventory_published_signature=NULL').run();
+    db.prepare('DELETE FROM semaphore_task_imports WHERE semaphore_profile_id=?').run(profileId);
+  }
+  recordAudit({ action: 'Semaphore integration updated', objectType: 'semaphore_profile', objectId: profileId, details: current.name });
+  res.json({ ok: true, profile: mapSemaphoreProfileRow(db.prepare('SELECT * FROM semaphore_profiles WHERE id=?').get(profileId)) });
+});
+
+app.post('/api/semaphore/profile/:profileId/discover', async (req, res) => {
+  if (!guardEncryptionReady(res)) return;
+  const profile = db.prepare('SELECT * FROM semaphore_profiles WHERE id=?').get(Number(req.params.profileId));
+  if (!profile) return res.status(404).json({ error: 'Semaphore profile not found' });
+  try {
+    const result = await createSemaphoreClient(profile).discover(req.body?.projectId || profile.project_id);
+    res.json({ ok: true, ...result });
+  } catch (error) {
+    res.status(502).json({ error: error?.message || 'Could not load Semaphore resources' });
+  }
+});
+
+app.get('/api/semaphore/profile/:profileId/inventory-diff', async (req, res) => {
+  if (!guardEncryptionReady(res)) return;
+  const profile = db.prepare('SELECT * FROM semaphore_profiles WHERE id=?').get(Number(req.params.profileId));
+  if (!profile) return res.status(404).json({ error: 'Semaphore profile not found' });
+  try {
+    const remote = await createSemaphoreClient(profile).getInventory(profile.project_id, profile.inventory_id);
+    const desired = generateManagedInventory();
+    const remoteContent = normalizeInventoryContent(remote?.inventory ?? '');
+    res.json({
+      desired,
+      remote: remoteContent,
+      changed: inventoryHash(desired) !== inventoryHash(remoteContent),
+      state: profile.inventory_sync_state,
+    });
+  } catch (error) {
+    res.status(502).json({ error: error?.message || 'Could not read Semaphore inventory' });
+  }
+});
+
+app.post('/api/semaphore/profile/:profileId/inventory-adopt', async (req, res) => {
+  if (!guardEncryptionReady(res)) return;
+  const profile = getSemaphoreProfileRow();
+  if (!profile || profile.id !== Number(req.params.profileId)) return res.status(404).json({ error: 'Semaphore profile not found' });
+  if (req.body?.confirmation !== 'REPLACE') return res.status(400).json({ error: 'Type REPLACE to publish Rakit inventory' });
+  try {
+    const result = await syncSemaphoreInventory({ force: true });
+    res.json({ ok: true, result, profile: mapSemaphoreProfileRow(getSemaphoreProfileRow()) });
+  } catch (error) {
+    res.status(502).json({ error: error?.message || 'Inventory publish failed' });
+  }
+});
+
+app.post('/api/semaphore/profile/:profileId/inventory-sync', async (req, res) => {
+  if (!guardEncryptionReady(res)) return;
+  const profile = getSemaphoreProfileRow();
+  if (!profile || profile.id !== Number(req.params.profileId)) return res.status(404).json({ error: 'Semaphore profile not found' });
+  try {
+    const result = await syncSemaphoreInventory();
+    if (!result.ok) return res.status(409).json({ error: result.state === 'conflict' ? 'Semaphore inventory has changed outside Rakit' : 'Inventory requires first adoption', code: result.state.toUpperCase(), ...result });
+    res.json({ ok: true, result, profile: mapSemaphoreProfileRow(getSemaphoreProfileRow()) });
+  } catch (error) {
+    res.status(502).json({ error: error?.message || 'Inventory synchronization failed' });
+  }
+});
+
+app.get('/api/server-groups', (_req, res) => res.json({ groups: listServerGroups() }));
+
+app.post('/api/server-groups', async (req, res) => {
+  const name = clampText(req.body?.name, 120);
+  const ansibleName = clampText(req.body?.ansibleName, 63).toLowerCase();
+  if (!name || !ANSIBLE_NAME_RE.test(ansibleName)) return res.status(400).json({ error: 'Name and valid Ansible group name are required' });
+  try {
+    const info = db.prepare('INSERT INTO server_groups(name, ansible_name, description, color) VALUES (?, ?, ?, ?)').run(
+      name, ansibleName, clampText(req.body?.description, 300) || null, clampText(req.body?.color, 30) || null,
+    );
+    recordAudit({ action: 'Server group created', objectType: 'server_group', objectId: info.lastInsertRowid, details: name });
+    const sync = await syncAfterCatalogChange();
+    res.status(201).json({ ok: true, group: listServerGroups().find((group) => group.id === Number(info.lastInsertRowid)), inventory: sync });
+  } catch (error) {
+    res.status(/UNIQUE/i.test(error?.message || '') ? 409 : 400).json({ error: /UNIQUE/i.test(error?.message || '') ? 'Ansible group name already exists' : error?.message || 'Could not create group' });
+  }
+});
+
+app.patch('/api/server-groups/:groupId', async (req, res) => {
+  const groupId = Number(req.params.groupId);
+  const current = db.prepare('SELECT * FROM server_groups WHERE id=?').get(groupId);
+  if (!current) return res.status(404).json({ error: 'Server group not found' });
+  const sets = [];
+  const values = [];
+  const assign = (column, value) => { sets.push(`${column}=?`); values.push(value); };
+  if ('name' in req.body) {
+    const name = clampText(req.body.name, 120);
+    if (!name) return res.status(400).json({ error: 'Group name required' });
+    assign('name', name);
+  }
+  if ('ansibleName' in req.body) {
+    const value = clampText(req.body.ansibleName, 63).toLowerCase();
+    if (!ANSIBLE_NAME_RE.test(value)) return res.status(400).json({ error: 'Invalid Ansible group name' });
+    assign('ansible_name', value);
+  }
+  if ('description' in req.body) assign('description', clampText(req.body.description, 300) || null);
+  if ('color' in req.body) assign('color', clampText(req.body.color, 30) || null);
+  if (!sets.length) return res.status(400).json({ error: 'Nothing to update' });
+  try {
+    values.push(groupId);
+    db.prepare(`UPDATE server_groups SET ${sets.join(', ')} WHERE id=?`).run(...values);
+    recordAudit({ action: 'Server group updated', objectType: 'server_group', objectId: groupId, details: current.name });
+    const sync = await syncAfterCatalogChange();
+    res.json({ ok: true, group: listServerGroups().find((group) => group.id === groupId), inventory: sync });
+  } catch (error) {
+    res.status(/UNIQUE/i.test(error?.message || '') ? 409 : 400).json({ error: error?.message || 'Could not update group' });
+  }
+});
+
+app.delete('/api/server-groups/:groupId', async (req, res) => {
+  const groupId = Number(req.params.groupId);
+  const current = db.prepare('SELECT * FROM server_groups WHERE id=?').get(groupId);
+  if (!current) return res.status(404).json({ error: 'Server group not found' });
+  db.prepare('DELETE FROM server_groups WHERE id=?').run(groupId);
+  recordAudit({ action: 'Server group removed', objectType: 'server_group', objectId: groupId, details: current.name });
+  const sync = await syncAfterCatalogChange();
+  res.json({ ok: true, inventory: sync });
+});
+
+app.get('/api/servers', (_req, res) => {
+  res.json({ servers: listServers(), groups: listServerGroups(), inventory: mapSemaphoreProfileRow(getSemaphoreProfileRow()) });
+});
+
+app.get('/api/servers/:serverId', (req, res) => {
+  const server = getServer(Number(req.params.serverId));
+  if (!server) return res.status(404).json({ error: 'Server not found' });
+  const actions = db.prepare('SELECT * FROM server_actions WHERE server_id=? ORDER BY requested_at DESC, id DESC LIMIT 30').all(server.id).map(mapServerActionRow);
+  res.json({ server, actions });
+});
+
+app.post('/api/servers', async (req, res) => {
+  const name = clampText(req.body?.name, 120);
+  const alias = clampText(req.body?.ansibleAlias, 63).toLowerCase();
+  const primaryIp = normalizeManagedAddress(req.body?.primaryIp);
+  const sshPort = Number(req.body?.sshPort ?? 22);
+  if (!name || !ANSIBLE_NAME_RE.test(alias) || !primaryIp) return res.status(400).json({ error: 'Name, valid Ansible alias and IP/hostname are required' });
+  if (!Number.isInteger(sshPort) || sshPort < 1 || sshPort > 65535) return res.status(400).json({ error: 'SSH port must be between 1 and 65535' });
+  const cockpitUrl = req.body?.cockpitUrl ? normalizeExternalUrl(req.body.cockpitUrl) : '';
+  if (req.body?.cockpitUrl && !cockpitUrl) return res.status(400).json({ error: 'Cockpit URL is invalid' });
+  const linkedDeviceId = req.body?.linkedDeviceId == null || req.body.linkedDeviceId === '' ? null : Number(req.body.linkedDeviceId);
+  if (linkedDeviceId != null && !db.prepare('SELECT id FROM cabinet_devices WHERE id=?').get(linkedDeviceId)) return res.status(400).json({ error: 'Linked rack device does not exist' });
+  try {
+    const info = db.prepare(`
+      INSERT INTO servers(name, ansible_alias, hostname, primary_ip, ssh_port, os_family, os_name, os_version,
+        environment, role, location, cockpit_url, notes, linked_device_id, ansible_enabled, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      name, alias, clampText(req.body?.hostname, 255) || null, primaryIp, sshPort,
+      clampText(req.body?.osFamily, 40) || 'linux', clampText(req.body?.osName, 80) || null,
+      clampText(req.body?.osVersion, 80) || null, clampText(req.body?.environment, 80) || null,
+      clampText(req.body?.role, 120) || null, clampText(req.body?.location, 120) || null,
+      cockpitUrl || null, clampText(req.body?.notes, 1000) || null, linkedDeviceId,
+      req.body?.ansibleEnabled === false ? 0 : 1, SERVER_STATUS.has(req.body?.status) ? req.body.status : 'unknown',
+    );
+    replaceServerMemberships(Number(info.lastInsertRowid), req.body?.groupIds);
+    recordAudit({ action: 'Server created', objectType: 'server', objectId: info.lastInsertRowid, details: `${name} · ${primaryIp}` });
+    const sync = await syncAfterCatalogChange();
+    const serverId = Number(info.lastInsertRowid);
+    await refreshServerNetworkStatus([serverId]).catch((error) => console.warn(`[Network] Could not probe server ${serverId}:`, error?.message || error));
+    res.status(201).json({ ok: true, server: getServer(serverId), inventory: sync });
+  } catch (error) {
+    res.status(/UNIQUE/i.test(error?.message || '') ? 409 : 400).json({ error: /UNIQUE/i.test(error?.message || '') ? 'Ansible alias already exists' : error?.message || 'Could not create server' });
+  }
+});
+
+app.patch('/api/servers/:serverId', async (req, res) => {
+  const serverId = Number(req.params.serverId);
+  const current = getServer(serverId);
+  if (!current) return res.status(404).json({ error: 'Server not found' });
+  const sets = [];
+  const values = [];
+  const assign = (column, value) => { sets.push(`${column}=?`); values.push(value); };
+  if ('name' in req.body) {
+    const name = clampText(req.body.name, 120);
+    if (!name) return res.status(400).json({ error: 'Server name required' });
+    assign('name', name);
+  }
+  if ('ansibleAlias' in req.body) {
+    const alias = clampText(req.body.ansibleAlias, 63).toLowerCase();
+    if (!ANSIBLE_NAME_RE.test(alias)) return res.status(400).json({ error: 'Invalid Ansible alias' });
+    if (alias !== current.ansibleAlias && req.body?.confirmAliasChange !== current.ansibleAlias) return res.status(400).json({ error: 'Confirm the current alias before changing it' });
+    assign('ansible_alias', alias);
+  }
+  if ('primaryIp' in req.body) {
+    const value = normalizeManagedAddress(req.body.primaryIp);
+    if (!value) return res.status(400).json({ error: 'Valid IP address or hostname required' });
+    assign('primary_ip', value);
+  }
+  if ('sshPort' in req.body) {
+    const value = Number(req.body.sshPort);
+    if (!Number.isInteger(value) || value < 1 || value > 65535) return res.status(400).json({ error: 'SSH port must be between 1 and 65535' });
+    assign('ssh_port', value);
+  }
+  for (const [input, column, limit] of [
+    ['hostname', 'hostname', 255], ['osFamily', 'os_family', 40], ['osName', 'os_name', 80],
+    ['osVersion', 'os_version', 80], ['environment', 'environment', 80], ['role', 'role', 120],
+    ['location', 'location', 120], ['notes', 'notes', 1000],
+  ]) if (input in req.body) assign(column, clampText(req.body[input], limit) || null);
+  if ('cockpitUrl' in req.body) {
+    const value = req.body.cockpitUrl ? normalizeExternalUrl(req.body.cockpitUrl) : '';
+    if (req.body.cockpitUrl && !value) return res.status(400).json({ error: 'Cockpit URL is invalid' });
+    assign('cockpit_url', value || null);
+  }
+  if ('linkedDeviceId' in req.body) {
+    const value = req.body.linkedDeviceId == null || req.body.linkedDeviceId === '' ? null : Number(req.body.linkedDeviceId);
+    if (value != null && !db.prepare('SELECT id FROM cabinet_devices WHERE id=?').get(value)) return res.status(400).json({ error: 'Linked rack device does not exist' });
+    assign('linked_device_id', value);
+  }
+  if ('ansibleEnabled' in req.body) assign('ansible_enabled', req.body.ansibleEnabled === false ? 0 : 1);
+  if ('status' in req.body) {
+    if (!SERVER_STATUS.has(req.body.status)) return res.status(400).json({ error: 'Invalid server status' });
+    assign('status', req.body.status);
+  }
+  if (!sets.length && !('groupIds' in req.body)) return res.status(400).json({ error: 'Nothing to update' });
+  const networkTargetChanged = sets.some((set) => set.startsWith('primary_ip=') || set.startsWith('ssh_port='));
+  try {
+    const update = db.transaction(() => {
+      if (sets.length) {
+        values.push(serverId);
+        db.prepare(`UPDATE servers SET ${sets.join(', ')} WHERE id=?`).run(...values);
+      }
+      if ('groupIds' in req.body) replaceServerMemberships(serverId, req.body.groupIds);
+    });
+    update();
+    if (networkTargetChanged) {
+      db.prepare('DELETE FROM server_network_status WHERE server_id=?').run(serverId);
+      await refreshServerNetworkStatus([serverId]).catch((error) => console.warn(`[Network] Could not probe server ${serverId}:`, error?.message || error));
+    }
+    recordAudit({ action: 'Server updated', objectType: 'server', objectId: serverId, details: current.name });
+    const sync = await syncAfterCatalogChange();
+    res.json({ ok: true, server: getServer(serverId), inventory: sync });
+  } catch (error) {
+    res.status(/UNIQUE/i.test(error?.message || '') ? 409 : 400).json({ error: error?.message || 'Could not update server' });
+  }
+});
+
+app.delete('/api/servers/:serverId', async (req, res) => {
+  const serverId = Number(req.params.serverId);
+  const current = getServer(serverId);
+  if (!current) return res.status(404).json({ error: 'Server not found' });
+  if (req.body?.confirmation !== current.ansibleAlias) return res.status(400).json({ error: 'Type the Ansible alias to confirm removal' });
+  db.prepare('DELETE FROM servers WHERE id=?').run(serverId);
+  recordAudit({ action: 'Server removed', objectType: 'server', objectId: serverId, details: `${current.name} · ${current.ansibleAlias}` });
+  const sync = await syncAfterCatalogChange();
+  res.json({ ok: true, inventory: sync });
+});
+
+const launchServerAction = async (req, res, action) => {
+  if (!guardEncryptionReady(res)) return;
+  const server = getServer(Number(req.params.serverId));
+  if (!server) return res.status(404).json({ error: 'Server not found' });
+  const profile = getSemaphoreProfileRow();
+  if (!profile) return res.status(409).json({ error: 'Semaphore integration is not configured' });
+  if (profile.inventory_sync_state !== 'synced') return res.status(409).json({ error: 'Semaphore inventory is not synchronized' });
+  if (!server.ansibleEnabled) return res.status(409).json({ error: 'Ansible is disabled for this server' });
+  const templateColumn = action === 'check_updates' ? 'check_template_id'
+    : action === 'health_check' ? 'health_template_id'
+      : action === 'update_packages' ? 'update_template_id' : 'reboot_template_id';
+  const templateId = profile[templateColumn];
+  if (!templateId) return res.status(409).json({ error: `No Semaphore template configured for ${action}` });
+  if (['update_packages', 'reboot'].includes(action) && req.body?.confirmation !== server.ansibleAlias) return res.status(400).json({ error: `Type ${server.ansibleAlias} to confirm this operation` });
+  const active = db.prepare("SELECT id FROM server_actions WHERE server_id=? AND status IN ('submitting','queued','running') LIMIT 1").get(server.id);
+  if (active) return res.status(409).json({ error: 'Another operation is already active for this server' });
+  const semaphore = createSemaphoreClient(profile);
+  try {
+    const template = await semaphore.getTemplate(profile.project_id, templateId);
+    const promptParams = template?.task_params?.params ?? {};
+    if (!Object.prototype.hasOwnProperty.call(promptParams, 'limit')) {
+      return res.status(409).json({ error: 'Enable the Ansible Prompt "Limit" in this Semaphore template before running it from Rakit' });
+    }
+  } catch (error) {
+    return res.status(502).json({ error: error?.message || 'Could not verify the Semaphore template' });
+  }
+  const actionInfo = db.prepare(`
+    INSERT INTO server_actions(server_id, action, semaphore_profile_id, semaphore_template_id, target_limit)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(server.id, action, profile.id, templateId, server.ansibleAlias);
+  const actionId = Number(actionInfo.lastInsertRowid);
+  try {
+    const task = await semaphore.launchTask(profile.project_id, { template_id: templateId, limit: server.ansibleAlias });
+    const taskId = Number(task?.task_id ?? task?.id);
+    if (!Number.isInteger(taskId) || taskId < 1) throw new Error('Semaphore did not return a task ID');
+    db.prepare("UPDATE server_actions SET semaphore_task_id=?, status='queued' WHERE id=?").run(taskId, actionId);
+    recordAudit({ action: `Server action requested: ${action}`, objectType: 'server_action', objectId: actionId, details: `${server.name} · task ${taskId}` });
+    const mapped = mapServerActionRow(db.prepare('SELECT * FROM server_actions WHERE id=?').get(actionId));
+    res.status(202).json({ action: { ...mapped, logUrl: `${profile.ui_url}/project/${profile.project_id}/history/${taskId}` } });
+  } catch (error) {
+    db.prepare("UPDATE server_actions SET status='failed', error_message=?, finished_at=CURRENT_TIMESTAMP WHERE id=?").run(clampText(error?.message || 'Task submission failed', 500), actionId);
+    recordAudit({ action: `Server action failed: ${action}`, objectType: 'server_action', objectId: actionId, details: error?.message || server.name, result: 'error' });
+    res.status(502).json({ error: error?.message || 'Could not launch Semaphore task' });
+  }
+};
+
+app.post('/api/servers/:serverId/actions/check-updates', (req, res) => launchServerAction(req, res, 'check_updates'));
+app.post('/api/servers/:serverId/actions/health', (req, res) => launchServerAction(req, res, 'health_check'));
+app.post('/api/servers/:serverId/actions/update-packages', (req, res) => launchServerAction(req, res, 'update_packages'));
+app.post('/api/servers/:serverId/actions/reboot', (req, res) => launchServerAction(req, res, 'reboot'));
+
+app.get('/api/server-actions', (req, res) => {
+  const serverId = req.query.serverId ? Number(req.query.serverId) : null;
+  const rows = serverId
+    ? db.prepare('SELECT * FROM server_actions WHERE server_id=? ORDER BY requested_at DESC, id DESC LIMIT 100').all(serverId)
+    : db.prepare('SELECT * FROM server_actions ORDER BY requested_at DESC, id DESC LIMIT 100').all();
+  res.json({ actions: rows.map(mapServerActionRow) });
+});
+
+const reconcileServerAction = async (actionId) => {
+  const actionRow = db.prepare('SELECT * FROM server_actions WHERE id=?').get(actionId);
+  if (!actionRow) throw Object.assign(new Error('Server action not found'), { status: 404 });
+  const profile = db.prepare('SELECT * FROM semaphore_profiles WHERE id=?').get(actionRow.semaphore_profile_id);
+  if (!profile || !actionRow.semaphore_task_id) throw Object.assign(new Error('Semaphore task is not available'), { status: 409 });
+  const client = createSemaphoreClient(profile);
+  const task = await client.getTask(profile.project_id, actionRow.semaphore_task_id);
+  const status = mapSemaphoreTaskStatus(task?.status);
+  const startedAt = task?.start || task?.started || task?.created || null;
+  const finishedAt = SEMAPHORE_TERMINAL_TASK_STATES.has(status) ? task?.end || task?.finished || new Date().toISOString() : null;
+  db.prepare(`UPDATE server_actions SET status=?, started_at=COALESCE(?, started_at), finished_at=COALESCE(?, finished_at), error_message=? WHERE id=?`).run(
+    status, startedAt, finishedAt, status === 'failed' ? clampText(task?.message || 'Semaphore task failed', 500) : null, actionId,
+  );
+  if (status === 'failed' && actionRow.server_id && actionRow.action === 'health_check') {
+    saveHealthFailure(actionRow.server_id, finishedAt);
+  }
+  if (actionRow.action === 'check_updates' && status === 'success' && actionRow.server_id) {
+    const server = getServer(actionRow.server_id);
+    const output = await getSemaphoreTaskOutput(client, profile.project_id, actionRow.semaphore_task_id);
+    const result = server ? parseRakitTaskResult(output, server.ansibleAlias) : null;
+    if (result) {
+      saveUpdateCheckResult(server.id, result, actionRow.semaphore_task_id, finishedAt);
+      db.prepare('UPDATE server_actions SET result_summary=? WHERE id=?').run(`${result.updates} updates · ${result.security} security`, actionId);
+    } else {
+      db.prepare(`
+          INSERT INTO server_update_status(server_id, checked_at, check_result, source_task_id)
+          VALUES (?, CURRENT_TIMESTAMP, 'partial', ?)
+          ON CONFLICT(server_id) DO UPDATE SET checked_at=CURRENT_TIMESTAMP, check_result='partial', source_task_id=excluded.source_task_id
+      `).run(server.id, actionRow.semaphore_task_id);
+      db.prepare("UPDATE server_actions SET result_summary='Task succeeded without a RAKIT_RESULT_V1 record' WHERE id=?").run(actionId);
+    }
+  }
+  if (actionRow.action === 'health_check' && status === 'success' && actionRow.server_id) {
+    const server = getServer(actionRow.server_id);
+    const output = await getSemaphoreTaskOutput(client, profile.project_id, actionRow.semaphore_task_id);
+    const result = server ? parseRakitHealthResult(output, server.ansibleAlias) : null;
+    if (result) {
+      saveHealthResult(server.id, result, finishedAt);
+      db.prepare('UPDATE server_actions SET result_summary=? WHERE id=?').run(
+        `Online · disk ${result.rootDiskPercent ?? '?'}% · ${result.processorVcpus ?? '?'} vCPU · ${result.memoryMb ?? '?'} MB RAM`, actionId,
+      );
+    } else {
+      saveHealthStatus(server.id, 'online', finishedAt);
+      db.prepare("UPDATE server_actions SET result_summary='Host reached; task succeeded without a RAKIT_HEALTH_V1 record' WHERE id=?").run(actionId);
+    }
+  }
+  if (status === 'success' && actionRow.server_id && actionRow.action === 'update_packages') {
+    const server = getServer(actionRow.server_id);
+    let result = null;
+    try {
+      const output = await getSemaphoreTaskOutput(client, profile.project_id, actionRow.semaphore_task_id);
+      result = server ? parseRakitOperationResult(output, server.ansibleAlias, 'update_packages') : null;
+    } catch (error) {
+      console.warn(`[Semaphore] Could not read successful update task ${actionRow.semaphore_task_id} output:`, error?.message || error);
+    }
+    saveUpdateOperationResult(actionRow.server_id, result, actionRow.semaphore_task_id, finishedAt);
+    db.prepare("UPDATE server_actions SET result_summary='Packages updated; run a new update check' WHERE id=?").run(actionId);
+  }
+  if (status === 'failed' && actionRow.server_id && actionRow.action === 'update_packages') {
+    saveFailedUpdateOperation(actionRow.server_id, actionRow.semaphore_task_id, finishedAt);
+  }
+  if (status === 'success' && actionRow.server_id && actionRow.action === 'reboot') {
+    db.prepare("UPDATE server_update_status SET reboot_required=0, check_result='stale' WHERE server_id=?").run(actionRow.server_id);
+    db.prepare("UPDATE server_actions SET result_summary='Server reboot completed; health data is stale' WHERE id=?").run(actionId);
+  }
+  if (SEMAPHORE_TERMINAL_TASK_STATES.has(status) && !SEMAPHORE_TERMINAL_TASK_STATES.has(actionRow.status)) {
+    recordAudit({ action: `Server action finished: ${actionRow.action}`, objectType: 'server_action', objectId: actionId, details: `Semaphore task ${actionRow.semaphore_task_id} · ${status}`, result: status === 'success' ? 'success' : 'error', actor: 'system' });
+  }
+  return { action: mapServerActionRow(db.prepare('SELECT * FROM server_actions WHERE id=?').get(actionId)), server: actionRow.server_id ? getServer(actionRow.server_id) : null };
+};
+
+app.post('/api/server-actions/:actionId/refresh', async (req, res) => {
+  if (!guardEncryptionReady(res)) return;
+  try {
+    res.json(await reconcileServerAction(Number(req.params.actionId)));
+  } catch (error) {
+    res.status(Number(error?.status) || 502).json({ error: error?.message || 'Could not refresh Semaphore task' });
+  }
+});
+
 app.get('/api/ipdash/profiles', (_req,res)=>{
   res.json({
     profiles: listProfiles(),
@@ -1884,14 +2956,18 @@ app.post('/api/ipdash/profiles/reset-encrypted', (req,res)=>{
       return res.status(401).json({ error: 'PIN required to reset encrypted profiles.' });
     }
   }
-  const deleted = db.prepare('DELETE FROM ipdash_profiles').run();
+  const resetEncryptedProfiles = db.transaction(() => ({
+    ipDash: db.prepare('DELETE FROM ipdash_profiles').run()?.changes ?? 0,
+    semaphore: db.prepare('DELETE FROM semaphore_profiles').run()?.changes ?? 0,
+  }));
+  const deleted = resetEncryptedProfiles();
   deleteMetaValue(ENC_KEY_META_KEY);
   refreshEncryptionKeyState();
-  console.warn('[Encryption] Encrypted IP Dash profiles were reset by request');
+  console.warn('[Encryption] Encrypted integration profiles were reset by request');
   res.json({
     ok: true,
-    deletedProfiles: deleted?.changes ?? 0,
-    message: 'Encrypted IP Dash profiles have been cleared. Add new profiles to use the current APP_ENC_KEY.',
+    deletedProfiles: deleted.ipDash + deleted.semaphore,
+    message: 'Encrypted integration profiles have been cleared. Add new profiles to use the current APP_ENC_KEY.',
   });
 });
 
@@ -2329,6 +3405,8 @@ app.get('/api/audit/export', (req,res)=>{
 app.get('/api/overview', (_req,res)=>{
   const cabinetCount = Number(db.prepare('SELECT COUNT(*) AS c FROM cabinets').get()?.c ?? 0);
   const deviceCount = Number(db.prepare('SELECT COUNT(*) AS c FROM cabinet_devices').get()?.c ?? 0);
+  const serverCount = Number(db.prepare('SELECT COUNT(*) AS c FROM servers').get()?.c ?? 0);
+  const serverUpdateCount = Number(db.prepare('SELECT COALESCE(SUM(updates_available), 0) AS c FROM server_update_status').get()?.c ?? 0);
   const portConnectionCount = Number(db.prepare('SELECT COUNT(*) AS c FROM port_connections').get()?.c ?? 0);
   const wolMachineCount = Number(db.prepare('SELECT COUNT(*) AS c FROM wol_machines').get()?.c ?? 0);
   const manualIpCount = Number(db.prepare('SELECT COUNT(*) AS c FROM ipdash_scope_hosts').get()?.c ?? 0);
@@ -2360,7 +3438,7 @@ app.get('/api/overview', (_req,res)=>{
       status,
     };
   });
-  res.json({ cabinetCount, deviceCount, portConnectionCount, wolMachineCount, manualIpCount, attentionCount, physicalCapacity });
+  res.json({ cabinetCount, deviceCount, serverCount, serverUpdateCount, portConnectionCount, wolMachineCount, manualIpCount, attentionCount, physicalCapacity });
 });
 
 const cronFieldMatches = (field, value, min, max) => {
@@ -2455,6 +3533,7 @@ app.post('/api/export', async (req,res)=>{
     const { modules, ipdash } = req.body || {};
     const requestedModules = Array.isArray(modules) && modules.length ? modules : ['cabinet'];
     const includeCabinet = requestedModules.includes('cabinet');
+    const includeServers = requestedModules.includes('servers');
     const includeConnections = requestedModules.includes('connections');
     const includeWol = requestedModules.includes('wol');
     const includeIpDash = requestedModules.includes('ipdash');
@@ -2463,7 +3542,7 @@ app.post('/api/export', async (req,res)=>{
     if (includeIpDash) {
       ipDashContext = await buildIpDashContext(ipdash);
     }
-    const wb = buildExportWorkbook({ includeCabinet, includeConnections, includeWol, ipDashContext });
+    const wb = buildExportWorkbook({ includeCabinet, includeServers, includeConnections, includeWol, ipDashContext });
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', 'attachment; filename="rakit_export.xlsx"');
     await wb.xlsx.write(res);
@@ -2521,12 +3600,164 @@ const server = app.listen(PORT, ()=> {
   if (removedAuditEvents) console.log(`[Audit] Removed ${removedAuditEvents} events outside the ${AUDIT_RETENTION_DAYS}-day retention window`);
   if (!SESSION_COOKIE_SECURE) console.warn('[Security] Session cookie Secure flag is disabled; use HTTPS and APP_COOKIE_SECURE=true when possible');
   runWolSchedules().catch((error) => console.warn('[WOL] Schedule runner failed', error?.message || error));
+  refreshServerNetworkStatus().catch((error) => console.warn('[Network] Server probe failed', error?.message || error));
+  reconcileActiveSemaphoreActions().catch((error) => console.warn('[Semaphore] Task reconciliation failed', error?.message || error));
+  reconcileScheduledSemaphoreTasks().catch((error) => console.warn('[Semaphore] Scheduled task import failed', error?.message || error));
 });
+
+let semaphoreReconcileRunning = false;
+const reconcileActiveSemaphoreActions = async () => {
+  if (semaphoreReconcileRunning || encryptionKeyMismatch || !APP_ENC_KEY) return;
+  semaphoreReconcileRunning = true;
+  try {
+    const actions = db.prepare(`
+      SELECT id FROM server_actions
+      WHERE semaphore_task_id IS NOT NULL AND (
+        status IN ('submitting','queued','running','unknown')
+        OR (status='success' AND action IN ('check_updates','health_check') AND COALESCE(result_summary, '')='')
+      )
+      ORDER BY requested_at ASC LIMIT 25
+    `).all();
+    await mapWithConcurrency(actions, 3, async ({ id }) => {
+      try { await reconcileServerAction(id); }
+      catch (error) { console.warn(`[Semaphore] Could not reconcile action ${id}:`, error?.message || error); }
+    });
+  } finally {
+    semaphoreReconcileRunning = false;
+  }
+};
+
+let semaphoreScheduleImportRunning = false;
+
+const scheduledActionForTask = (profile, task) => {
+  const templateId = Number(task?.template_id ?? task?.templateId);
+  if (templateId === Number(profile.check_template_id)) return 'check_updates';
+  if (templateId === Number(profile.update_template_id)) return 'update_packages';
+  if (templateId === Number(profile.reboot_template_id)) return 'reboot';
+  if (templateId === Number(profile.health_template_id)) return 'health_check';
+  return null;
+};
+
+const insertScheduledServerAction = (profile, task, server, action, summary, status = 'success') => {
+  db.prepare(`
+    INSERT INTO server_actions(
+      server_id, action, semaphore_profile_id, semaphore_template_id, semaphore_task_id,
+      target_limit, status, requested_at, started_at, finished_at, result_summary, source
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(datetime(?), CURRENT_TIMESTAMP), datetime(?), datetime(?), ?, 'schedule')
+  `).run(
+    server.id, action, profile.id, Number(task.template_id ?? task.templateId), Number(task.id),
+    server.ansible_alias, status, task.created || null, task.start || task.started || null,
+    task.end || task.finished || null, summary,
+  );
+};
+
+const scheduledTaskTargetsServer = (task, server) => {
+  const rawLimit = task?.params?.limit ?? task?.limit;
+  const limits = (Array.isArray(rawLimit) ? rawLimit : String(rawLimit || '').split(','))
+    .map((value) => String(value).trim()).filter(Boolean);
+  return !limits.length || limits.includes('all') || limits.includes(server.ansible_alias);
+};
+
+const importScheduledSemaphoreTask = async (profile, client, task) => {
+  const taskId = Number(task?.id);
+  const scheduleId = Number(task?.schedule_id ?? task?.scheduleId);
+  const action = scheduledActionForTask(profile, task);
+  const status = mapSemaphoreTaskStatus(task?.status);
+  if (!Number.isInteger(taskId) || taskId < 1 || !Number.isInteger(scheduleId) || scheduleId < 1 || !action
+    || !SEMAPHORE_TERMINAL_TASK_STATES.has(status)) return;
+  if (db.prepare('SELECT 1 FROM semaphore_task_imports WHERE semaphore_profile_id=? AND semaphore_task_id=?').get(profile.id, taskId)) return;
+
+  const output = await getSemaphoreTaskOutput(client, profile.project_id, taskId);
+  const finishedAt = task?.end || task?.finished || task?.start || task?.created || new Date().toISOString();
+  const servers = db.prepare('SELECT * FROM servers WHERE ansible_enabled=1').all();
+  const imported = db.transaction(() => {
+    let importedHosts = 0;
+    for (const server of servers) {
+      let hostResultImported = false;
+      if (action === 'check_updates') {
+        const result = parseRakitTaskResult(output, server.ansible_alias);
+        if (result) {
+          saveUpdateCheckResult(server.id, result, taskId, finishedAt);
+          insertScheduledServerAction(profile, task, server, action, `${result.updates} updates · ${result.security} security`);
+          hostResultImported = true;
+        }
+      } else if (action === 'health_check') {
+        const result = parseRakitHealthResult(output, server.ansible_alias);
+        if (result) {
+          saveHealthResult(server.id, result, finishedAt);
+          insertScheduledServerAction(profile, task, server, action, `Online · disk ${result.rootDiskPercent ?? '?'}% · ${result.processorVcpus ?? '?'} vCPU · ${result.memoryMb ?? '?'} MB RAM`);
+          hostResultImported = true;
+        }
+      } else if (action === 'update_packages') {
+        const result = parseRakitOperationResult(output, server.ansible_alias, action);
+        if (result) {
+          saveUpdateOperationResult(server.id, result, taskId, finishedAt);
+          insertScheduledServerAction(profile, task, server, action, `${result.changed ? 'Packages updated' : 'No package changes'} · ${result.rebootRequired ? 'reboot required' : 'no reboot required'}`);
+          hostResultImported = true;
+        }
+      } else if (action === 'reboot') {
+        const result = parseRakitOperationResult(output, server.ansible_alias, action);
+        if (result) {
+          db.prepare("UPDATE server_update_status SET reboot_required=0, check_result='stale' WHERE server_id=?").run(server.id);
+          insertScheduledServerAction(profile, task, server, action, 'Server reboot completed; health data is stale');
+          hostResultImported = true;
+        }
+      }
+      if (hostResultImported) {
+        importedHosts += 1;
+      } else if (status !== 'success' && scheduledTaskTargetsServer(task, server)) {
+        if (action === 'health_check') saveHealthFailure(server.id, finishedAt);
+        if (action === 'update_packages' && status === 'failed') saveFailedUpdateOperation(server.id, taskId, finishedAt);
+        insertScheduledServerAction(profile, task, server, action, clampText(task?.message || 'Scheduled Semaphore task failed', 500), status);
+        importedHosts += 1;
+      }
+    }
+    db.prepare(`
+      INSERT INTO semaphore_task_imports(semaphore_profile_id, semaphore_task_id, schedule_id, semaphore_template_id, status)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(profile.id, taskId, scheduleId, Number(task.template_id ?? task.templateId), status);
+    if (importedHosts) recordAudit({
+      action: `Scheduled server action imported: ${action}`,
+      objectType: 'semaphore_task', objectId: taskId,
+      details: `${importedHosts} host${importedHosts === 1 ? '' : 's'} · schedule ${scheduleId}`,
+      actor: 'system',
+    });
+  });
+  imported();
+};
+
+const reconcileScheduledSemaphoreTasks = async () => {
+  if (semaphoreScheduleImportRunning || encryptionKeyMismatch || !APP_ENC_KEY) return;
+  const profile = getSemaphoreProfileRow();
+  if (!profile) return;
+  semaphoreScheduleImportRunning = true;
+  try {
+    const client = createSemaphoreClient(profile);
+    const payload = await client.listRecentTasks(profile.project_id, 200);
+    const tasks = (Array.isArray(payload) ? payload : payload?.tasks ?? [])
+      .filter((task) => Number(task?.schedule_id ?? task?.scheduleId) > 0)
+      .sort((left, right) => Number(left.id) - Number(right.id));
+    for (const task of tasks) await importScheduledSemaphoreTask(profile, client, task);
+  } finally {
+    semaphoreScheduleImportRunning = false;
+  }
+};
+
+const semaphoreReconcileTimer = setInterval(() => {
+  reconcileActiveSemaphoreActions().catch((error) => console.warn('[Semaphore] Task reconciliation failed', error?.message || error));
+  reconcileScheduledSemaphoreTasks().catch((error) => console.warn('[Semaphore] Scheduled task import failed', error?.message || error));
+}, 10_000);
+semaphoreReconcileTimer.unref();
 
 const wolScheduleTimer = setInterval(() => {
   runWolSchedules().catch((error) => console.warn('[WOL] Schedule runner failed', error?.message || error));
 }, 30_000);
 wolScheduleTimer.unref();
+
+const serverNetworkProbeTimer = setInterval(() => {
+  refreshServerNetworkStatus().catch((error) => console.warn('[Network] Server probe failed', error?.message || error));
+}, SERVER_PROBE_INTERVAL_MS);
+serverNetworkProbeTimer.unref();
 
 const auditCleanupTimer = setInterval(cleanupAuditEvents, 24 * 60 * 60 * 1000);
 auditCleanupTimer.unref();
@@ -2537,7 +3768,9 @@ const shutdown = (signal) => {
   shuttingDown = true;
   console.log(`[Runtime] ${signal} received; closing HTTP server`);
   clearInterval(wolScheduleTimer);
+  clearInterval(serverNetworkProbeTimer);
   clearInterval(auditCleanupTimer);
+  clearInterval(semaphoreReconcileTimer);
   server.close(() => {
     try {
       db.close();

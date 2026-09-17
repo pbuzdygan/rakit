@@ -1,0 +1,53 @@
+---
+- name: Install all available package updates
+  hosts: all
+  gather_facts: true
+  become: true
+  become_method: sudo
+  become_user: root
+  serial: 1
+
+  pre_tasks:
+    - name: Verify privilege escalation to root
+      ansible.builtin.command: /usr/bin/id -u
+      register: rakit_effective_uid
+      changed_when: false
+      become: true
+
+    - name: Require effective root privileges
+      ansible.builtin.assert:
+        that:
+          - rakit_effective_uid.stdout | trim == '0'
+        fail_msg: >-
+          Sudo privilege escalation is not active. Configure the inventory Become Key
+          in Semaphore or install the documented NOPASSWD rule for the SSH user.
+
+  tasks:
+    - name: Require a Debian-family target
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.os_family == 'Debian'
+        fail_msg: This update playbook currently supports Debian and Ubuntu hosts only.
+
+    - name: Refresh the APT cache and perform a distribution upgrade
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+        upgrade: dist
+        autoremove: false
+      register: rakit_upgrade
+
+    - name: Read the reboot-required marker
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+      register: rakit_reboot_marker
+
+    - name: Emit the update operation result
+      ansible.builtin.debug:
+        msg: >-
+          RAKIT_OPERATION_V1={{ {
+            'host': inventory_hostname,
+            'action': 'update_packages',
+            'changed': rakit_upgrade.changed | default(false),
+            'rebootRequired': rakit_reboot_marker.stat.exists | default(false)
+          } | to_json }}

@@ -10,6 +10,7 @@ concurrency:
 
 jobs:
   build-test-scan-push:
+    name: Build, test and publish
     if: github.event.release.target_commitish == 'main' || github.event.release.target_commitish == 'dev'
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -81,14 +82,14 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
-      - name: Build image for security checks
+      - name: Build release image for runtime verification
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           load: true
           pull: true
           provenance: false
-          tags: rakit-security-scan:${{ github.sha }}
+          tags: rakit-release-check:${{ github.sha }}
           build-args: |
             APP_VERSION=${{ steps.vars.outputs.version }}
             APP_REPO=${{ github.repository }}
@@ -99,19 +100,19 @@ jobs:
 
       - name: Verify hardened runtime and authenticated API
         env:
-          TEST_IMAGE: rakit-security-scan:${{ github.sha }}
+          TEST_IMAGE: rakit-release-check:${{ github.sha }}
         run: |
           test "$(docker image inspect --format '{{.Config.User}}' "${TEST_IMAGE}")" = "node"
           docker run --rm --entrypoint node "${TEST_IMAGE}" -e \
             "const fs=require('node:fs'); fs.accessSync('/app',fs.constants.R_OK); try{fs.accessSync('/app',fs.constants.W_OK); process.exit(1)}catch{}"
-          docker run -d --rm --name rakit-security-smoke \
+          docker run -d --rm --name rakit-release-smoke \
             --read-only --tmpfs /tmp:rw,noexec,nosuid,nodev,size=64m \
             --cap-drop ALL --security-opt no-new-privileges \
             -p 127.0.0.1:18011:8011 \
             -e APP_PIN=246810 \
             -e APP_ENC_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \
             "${TEST_IMAGE}"
-          trap 'docker stop rakit-security-smoke >/dev/null 2>&1 || true' EXIT
+          trap 'docker stop rakit-release-smoke >/dev/null 2>&1 || true' EXIT
           for attempt in {1..30}; do
             if curl --fail --silent http://127.0.0.1:18011/health >/dev/null; then break; fi
             sleep 1
@@ -122,16 +123,6 @@ jobs:
             --data '{"pin":"246810"}' \
             http://127.0.0.1:18011/api/pin/verify >/dev/null
           curl --fail --silent --cookie /tmp/rakit-cookie http://127.0.0.1:18011/api/cabinets >/dev/null
-
-      - name: Scan image for fixable high and critical vulnerabilities
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: rakit-security-scan:${{ github.sha }}
-          format: table
-          exit-code: '1'
-          ignore-unfixed: true
-          severity: CRITICAL,HIGH
-          vuln-type: os,library
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0

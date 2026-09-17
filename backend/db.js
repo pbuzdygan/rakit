@@ -50,6 +50,12 @@ ensureColumn('cabinet_devices', 'rack_lane', "TEXT NOT NULL DEFAULT 'full'");
 ensureColumn('cabinets', 'numbering_direction', "TEXT NOT NULL DEFAULT 'bottom-up'");
 ensureColumn('wol_machines', 'probe_port', 'INTEGER');
 ensureColumn('ipdash_scope_hosts', 'linked_device_id', 'INTEGER REFERENCES cabinet_devices(id) ON DELETE SET NULL');
+ensureColumn('servers', 'inventory_published_signature', 'TEXT');
+ensureColumn('servers', 'health_checked_at', 'TEXT');
+ensureColumn('server_update_status', 'last_update_at', 'TEXT');
+ensureColumn('server_update_status', 'last_update_result', 'TEXT');
+ensureColumn('server_update_status', 'last_update_task_id', 'INTEGER');
+ensureColumn('server_actions', 'source', "TEXT NOT NULL DEFAULT 'rakit'");
 
 const hasDevicePorts = db
   .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='device_ports'")

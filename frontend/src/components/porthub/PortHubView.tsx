@@ -160,6 +160,7 @@ export function PortHubView() {
 function PortDevice({ device, connections, activeConnectionId, selectedPortId, pairedPortId, linkStartId, onPortClick }: { device: PortAwareDevice; connections: PortConnection[]; activeConnectionId: number | null; selectedPortId: number | null; pairedPortId: number | null; linkStartId: number | null; onPortClick: (port: DevicePort) => void }) {
   const automaticColumns = device.numberOfPorts <= 24 ? device.numberOfPorts : Math.ceil(device.numberOfPorts / 2);
   const columns = device.portsPerRow ?? automaticColumns;
+  const hasExplicitRowSize = device.portsPerRow != null;
   const twoRows = columns < device.numberOfPorts;
   const mappedPorts = new Set(connections.flatMap((connection) => [connection.sourcePortId, connection.destinationPortId]));
   const mappedCount = device.ports.filter((port) => mappedPorts.has(port.id)).length;
@@ -173,7 +174,11 @@ function PortDevice({ device, connections, activeConnectionId, selectedPortId, p
     <div className="ops-switch-face"><div className="ops-switch-ports" style={{ gridTemplateColumns: `repeat(${columns}, 30px)` }}>
       {device.ports.map((port) => {
         const connection = connections.find((item) => item.sourcePortId === port.id || item.destinationPortId === port.id);
-        const gridPosition = twoRows ? { gridColumn: Math.ceil(port.portNumber / 2), gridRow: port.portNumber % 2 === 1 ? 1 : 2 } : undefined;
+        const gridPosition = twoRows
+          ? hasExplicitRowSize
+            ? { gridColumn: ((port.portNumber - 1) % columns) + 1, gridRow: Math.floor((port.portNumber - 1) / columns) + 1 }
+            : { gridColumn: Math.ceil(port.portNumber / 2), gridRow: port.portNumber % 2 === 1 ? 1 : 2 }
+          : undefined;
         return <button key={port.id} style={gridPosition} title={`Port ${port.portNumber}${port.patchPanel ? ` · ${port.patchPanel}` : ''}`} className={`${connection ? 'is-connected' : ''} ${connection?.id === activeConnectionId ? 'is-active' : ''} ${selectedPortId === port.id ? 'is-selected' : ''} ${pairedPortId === port.id ? 'is-paired' : ''} ${linkStartId === port.id ? 'is-link-start' : ''}`} onClick={() => onPortClick(port)}><span>{port.portNumber}</span></button>;
       })}
     </div></div>

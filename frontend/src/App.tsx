@@ -16,6 +16,7 @@ import { OperationsSidebar, OperationsTopbar } from './components/OperationsShel
 import { OverviewView } from './components/OverviewView';
 import { WolView } from './components/WolView';
 import { AuditView } from './components/AuditView';
+import { ServersView } from './components/servers/ServersView';
 import './styles/global.css';
 import './styles/operations.css';
 
@@ -60,6 +61,7 @@ export default function App() {
     if (view === 'overview') return <OverviewView />;
     if (view === 'ipdash') return <OperationsIpamView />;
     if (view === 'porthub') return <PortHubView />;
+    if (view === 'servers') return <ServersView />;
     if (view === 'wol') return <WolView />;
     if (view === 'audit') return <AuditView />;
     return <CabinetView />;

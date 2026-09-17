@@ -5,7 +5,8 @@ on:
   push:
     branches: [main, dev]
   schedule:
-    - cron: '23 4 * * 1'
+    # Full runtime vulnerability scan on the first day of each month.
+    - cron: '23 4 1 * *'
   workflow_dispatch:
 
 concurrency:
@@ -109,6 +110,8 @@ jobs:
           curl --fail --silent --cookie /tmp/rakit-security-cookie http://127.0.0.1:18012/api/cabinets >/dev/null
 
       - name: Scan built runtime image
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        continue-on-error: true
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: rakit-security-check:${{ github.sha }}

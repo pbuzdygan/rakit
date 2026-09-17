@@ -1,0 +1,28 @@
+---
+- name: Collect basic server health facts
+  hosts: all
+  gather_facts: true
+  become: false
+
+  tasks:
+    - name: Read root filesystem usage
+      ansible.builtin.command:
+        argv:
+          - /bin/df
+          - --output=pcent
+          - /
+      register: rakit_root_disk
+      changed_when: false
+
+    - name: Emit the health result
+      ansible.builtin.debug:
+        msg: >-
+          RAKIT_HEALTH_V1={{ {
+            'host': inventory_hostname,
+            'kernel': ansible_facts.kernel,
+            'uptimeSeconds': ansible_facts.uptime_seconds | default(0),
+            'memoryMb': ansible_facts.memtotal_mb | default(0),
+            'processorVcpus': ansible_facts.processor_vcpus | default(0),
+            'rootDiskPercent': (rakit_root_disk.stdout_lines | last | trim | replace('%', '') | int)
+          } | to_json }}
+
