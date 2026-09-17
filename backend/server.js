@@ -10,7 +10,7 @@ import net from 'net';
 import { spawn } from 'child_process';
 import { IpDashClient } from './ipdashClient.js';
 import { SemaphoreClient, normalizeSemaphoreUrl } from './semaphoreClient.js';
-import { parseSemaphoreInventory } from './inventory.js';
+import { encodeRakitCatalog, parseSemaphoreInventory } from './inventory.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -90,6 +90,7 @@ const MAX_DEVICE_PORTS = 48;
 const AUDIT_RETENTION_DAYS = boundedNumber(process.env.AUDIT_RETENTION_DAYS, 0, 0, 3650);
 const SERVER_PROBE_TIMEOUT_MS = boundedNumber(process.env.SERVER_PROBE_TIMEOUT_MS, 1500, 250, 10000);
 const SERVER_PROBE_INTERVAL_MS = boundedNumber(process.env.SERVER_PROBE_INTERVAL_MS, 60000, 10000, 3600000);
+const SEMAPHORE_INVENTORY_PULL_INTERVAL_MS = boundedNumber(process.env.SEMAPHORE_INVENTORY_PULL_INTERVAL_MS, 30000, 10000, 3600000);
 const REQUESTED_SERVER_PROBE_MODE = String(process.env.SERVER_PROBE_MODE || 'icmp').trim().toLowerCase();
 const SERVER_PROBE_MODE = ['icmp', 'tcp', 'icmp-tcp'].includes(REQUESTED_SERVER_PROBE_MODE)
   ? REQUESTED_SERVER_PROBE_MODE
@@ -1106,7 +1107,7 @@ const normalizeExternalUrl = (value) => {
 };
 
 const serverGroupsFor = (serverId) => db.prepare(`
-  SELECT g.id, g.name, g.ansible_name, g.description, g.color
+  SELECT g.id, g.name, g.ansible_name, g.description, g.color, g.inventory_shared
   FROM server_groups g
   JOIN server_group_members m ON m.group_id=g.id
   WHERE m.server_id=?
@@ -1117,13 +1118,14 @@ const serverGroupsFor = (serverId) => db.prepare(`
   ansibleName: group.ansible_name,
   description: group.description ?? '',
   color: group.color ?? '',
+  inventoryShared: Boolean(group.inventory_shared),
 }));
 
 const serverInventorySignature = (server, groups = serverGroupsFor(server.id)) => inventoryHash(JSON.stringify({
   alias: server.ansible_alias ?? server.ansibleAlias,
   address: server.primary_ip ?? server.primaryIp,
   port: server.ssh_port ?? server.sshPort,
-  groups: groups.map((group) => group.ansibleName).sort(),
+  groups: groups.filter((group) => group.inventoryShared !== false).map((group) => group.ansibleName).sort(),
 }));
 
 const mapServerRow = (row) => {
@@ -1153,6 +1155,7 @@ const mapServerRow = (row) => {
     ? [row.cabinet_name, row.device_type, row.device_model].filter(Boolean).join(' · ')
     : '',
   ansibleEnabled,
+  inventoryShared: Boolean(row.inventory_shared),
   inventorySyncState,
   status: row.status ?? 'unknown',
   groups,
@@ -1202,6 +1205,7 @@ const mapServerGroupRow = (row) => ({
   ansibleName: row.ansible_name,
   description: row.description ?? '',
   color: row.color ?? '',
+  inventoryShared: Boolean(row.inventory_shared),
   serverCount: Number(row.server_count ?? 0),
   createdAt: toUtcISOString(row.created_at),
   updatedAt: toUtcISOString(row.updated_at),
@@ -1217,19 +1221,59 @@ const listServerGroups = () => db.prepare(`
 
 const normalizeInventoryContent = (value) => String(value ?? '').replace(/\r\n?/g, '\n').trimEnd() + '\n';
 const inventoryHash = (value) => crypto.createHash('sha256').update(normalizeInventoryContent(value), 'utf8').digest('hex');
+const inventoryPreview = (value) => {
+  const lines = normalizeInventoryContent(value).split('\n');
+  const metadataLines = lines.filter((line) => line.startsWith('# RAKIT_CATALOG_V1 ')).length;
+  const visible = lines.filter((line) => !line.startsWith('# RAKIT_CATALOG_V1 '));
+  if (metadataLines) visible.splice(1, 0, `# Portable Rakit catalog metadata: ${metadataLines} encoded chunk${metadataLines === 1 ? '' : 's'}`);
+  return normalizeInventoryContent(visible.join('\n'));
+};
 
 const generateManagedInventory = () => {
-  const servers = db.prepare('SELECT * FROM servers WHERE ansible_enabled=1 ORDER BY ansible_alias COLLATE NOCASE').all();
-  const groups = db.prepare('SELECT * FROM server_groups ORDER BY ansible_name COLLATE NOCASE').all();
-  const memberships = db.prepare(`
+  const allServers = db.prepare('SELECT * FROM servers WHERE inventory_shared=1 ORDER BY ansible_alias COLLATE NOCASE').all();
+  const servers = allServers.filter((server) => Boolean(server.ansible_enabled));
+  const groups = db.prepare('SELECT * FROM server_groups WHERE inventory_shared=1 ORDER BY ansible_name COLLATE NOCASE').all();
+  const allMemberships = db.prepare(`
     SELECT m.group_id, s.ansible_alias
     FROM server_group_members m
     JOIN servers s ON s.id=m.server_id
-    WHERE s.ansible_enabled=1
+    JOIN server_groups g ON g.id=m.group_id
+    WHERE s.inventory_shared=1 AND g.inventory_shared=1
     ORDER BY s.ansible_alias COLLATE NOCASE
   `).all();
+  const managedAliases = new Set(servers.map((server) => server.ansible_alias));
+  const memberships = allMemberships.filter((item) => managedAliases.has(item.ansible_alias));
+  const catalog = {
+    version: 1,
+    groups: groups.map((group) => ({
+      ansibleName: group.ansible_name,
+      name: group.name,
+      description: group.description ?? '',
+      color: group.color ?? '',
+    })),
+    servers: allServers.map((server) => ({
+      alias: server.ansible_alias,
+      name: server.name,
+      hostname: server.hostname ?? '',
+      primaryIp: server.primary_ip,
+      sshUser: server.ssh_user ?? '',
+      sshPort: server.ssh_port,
+      osFamily: server.os_family ?? 'linux',
+      osName: server.os_name ?? '',
+      osVersion: server.os_version ?? '',
+      environment: server.environment ?? '',
+      role: server.role ?? '',
+      location: server.location ?? '',
+      cockpitUrl: server.cockpit_url ?? '',
+      notes: server.notes ?? '',
+      ansibleEnabled: Boolean(server.ansible_enabled),
+      groups: allMemberships.filter((item) => item.ansible_alias === server.ansible_alias)
+        .map((item) => groups.find((group) => group.id === item.group_id)?.ansible_name).filter(Boolean).sort(),
+    })),
+  };
   const lines = [
     '# Managed by Rakit. Manual changes will cause a synchronization conflict.',
+    encodeRakitCatalog(catalog),
     '',
     '[rakit_managed]',
     ...servers.map((server) => `${server.ansible_alias} ansible_host=${server.primary_ip} ansible_port=${server.ssh_port}`),
@@ -1280,10 +1324,10 @@ const syncSemaphoreInventory = async ({ force = false, expectedRemoteHash = '' }
     await client.updateInventory(profile.project_id, profile.inventory_id, payload);
     const hash = inventoryHash(desired);
     const markPublished = db.transaction(() => {
-      const enabled = db.prepare('SELECT * FROM servers WHERE ansible_enabled=1').all();
+      const enabled = db.prepare('SELECT * FROM servers WHERE ansible_enabled=1 AND inventory_shared=1').all();
       const update = db.prepare('UPDATE servers SET inventory_published_signature=? WHERE id=?');
       for (const server of enabled) update.run(serverInventorySignature(server), server.id);
-      db.prepare('UPDATE servers SET inventory_published_signature=NULL WHERE ansible_enabled=0').run();
+      db.prepare('UPDATE servers SET inventory_published_signature=NULL WHERE ansible_enabled=0 OR inventory_shared=0').run();
       setInventorySyncState(profile.id, 'synced', null, hash);
     });
     markPublished();
@@ -1298,16 +1342,17 @@ const syncSemaphoreInventory = async ({ force = false, expectedRemoteHash = '' }
 };
 
 let semaphoreInventorySyncTail = Promise.resolve();
-const queueSemaphoreInventorySync = (options) => {
+const queueSemaphoreInventoryOperation = (operation) => {
   const queued = semaphoreInventorySyncTail.then(
-    () => syncSemaphoreInventory(options),
-    () => syncSemaphoreInventory(options),
+    operation,
+    operation,
   );
   semaphoreInventorySyncTail = queued.catch(() => undefined);
   return queued;
 };
+const queueSemaphoreInventorySync = (options) => queueSemaphoreInventoryOperation(() => syncSemaphoreInventory(options));
 
-const importRemoteSemaphoreInventory = async (expectedRemoteHash = '') => {
+const importRemoteSemaphoreInventory = async (expectedRemoteHash = '', expectedLocalHash = '') => {
   const profile = getSemaphoreProfileRow();
   if (!profile) throw new Error('Semaphore profile is not configured');
   const client = createSemaphoreClient(profile);
@@ -1320,54 +1365,123 @@ const importRemoteSemaphoreInventory = async (expectedRemoteHash = '') => {
     throw error;
   }
   const imported = parseSemaphoreInventory(remoteContent);
+  const catalog = imported.catalog;
+  if (catalog) {
+    for (const server of catalog.servers) {
+      if (server.cockpitUrl && !normalizeExternalUrl(server.cockpitUrl)) throw new Error(`Invalid Cockpit URL in Rakit catalog for ${server.alias}`);
+    }
+  }
   const previousManaged = db.prepare('SELECT ansible_alias FROM servers WHERE ansible_enabled=1').all();
   const importedAliases = new Set(imported.hosts.map((host) => host.alias.toLowerCase()));
   const previousManagedCount = previousManaged.length;
   const previousManagedDisabled = previousManaged.filter((server) => !importedAliases.has(server.ansible_alias.toLowerCase())).length;
   const importedServerIds = [];
 
+  if (expectedLocalHash && inventoryHash(generateManagedInventory()) !== expectedLocalHash) {
+    const error = new Error('Local inventory changed while the remote inventory was being loaded.');
+    error.code = 'LOCAL_INVENTORY_CHANGED';
+    throw error;
+  }
+
   const applyImport = db.transaction(() => {
-    db.prepare('UPDATE servers SET ansible_enabled=0, inventory_published_signature=NULL WHERE ansible_enabled=1').run();
-    db.prepare('DELETE FROM server_group_members').run();
-    db.prepare('DELETE FROM server_groups').run();
+    if (catalog) {
+      const incomingAliases = new Set(catalog.servers.map((server) => server.alias));
+      const incomingGroupNames = new Set(catalog.groups.map((group) => group.ansibleName));
+      const removeServer = db.prepare('DELETE FROM servers WHERE id=?');
+      for (const server of db.prepare('SELECT id, ansible_alias FROM servers WHERE inventory_shared=1').all()) {
+        if (!incomingAliases.has(server.ansible_alias.toLowerCase())) removeServer.run(server.id);
+      }
+      const removeGroup = db.prepare('DELETE FROM server_groups WHERE id=?');
+      for (const group of db.prepare('SELECT id, ansible_name FROM server_groups WHERE inventory_shared=1').all()) {
+        if (!incomingGroupNames.has(group.ansible_name.toLowerCase())) removeGroup.run(group.id);
+      }
+    }
+    db.prepare('UPDATE servers SET ansible_enabled=0, inventory_shared=0, inventory_published_signature=NULL').run();
+    db.prepare('UPDATE server_groups SET inventory_shared=0').run();
 
     const groupIds = new Map();
-    const insertGroup = db.prepare('INSERT INTO server_groups(name, ansible_name) VALUES (?, ?)');
-    for (const group of imported.groups) {
-      groupIds.set(group.name, Number(insertGroup.run(group.name, group.name).lastInsertRowid));
+    const findGroup = db.prepare('SELECT id FROM server_groups WHERE ansible_name=? COLLATE NOCASE');
+    const insertGroup = db.prepare('INSERT INTO server_groups(name, ansible_name, description, color, inventory_shared) VALUES (?, ?, ?, ?, 1)');
+    const updateGroup = db.prepare('UPDATE server_groups SET name=?, description=?, color=?, inventory_shared=1 WHERE id=?');
+    const incomingGroups = catalog?.groups ?? imported.groups.map((group) => ({ name: group.name, ansibleName: group.name, description: '', color: '' }));
+    for (const group of incomingGroups) {
+      const existing = findGroup.get(group.ansibleName);
+      const groupId = existing
+        ? (updateGroup.run(group.name, group.description || null, group.color || null, existing.id), Number(existing.id))
+        : Number(insertGroup.run(group.name, group.ansibleName, group.description || null, group.color || null).lastInsertRowid);
+      groupIds.set(group.ansibleName, groupId);
     }
 
     const findServer = db.prepare('SELECT * FROM servers WHERE ansible_alias=? COLLATE NOCASE');
-    const updateServer = db.prepare(`
+    const updateLegacyServer = db.prepare(`
       UPDATE servers
-      SET primary_ip=?, ssh_port=?, ansible_enabled=1, inventory_published_signature=NULL
+      SET primary_ip=?, ssh_port=?, ansible_enabled=1, inventory_shared=1, inventory_published_signature=NULL
       WHERE id=?
     `);
-    const insertServer = db.prepare(`
+    const insertLegacyServer = db.prepare(`
       INSERT INTO servers(name, ansible_alias, hostname, primary_ip, ssh_port, os_family,
         ansible_enabled, inventory_published_signature, status)
       VALUES (?, ?, ?, ?, ?, 'linux', 1, NULL, 'unknown')
     `);
+    const updateCatalogServer = db.prepare(`
+      UPDATE servers SET
+        name=?, hostname=?, primary_ip=?, ssh_user=?, ssh_port=?, os_family=?, os_name=?, os_version=?,
+        environment=?, role=?, location=?, cockpit_url=?, notes=?, ansible_enabled=?, inventory_shared=1, inventory_published_signature=NULL
+      WHERE id=?
+    `);
+    const insertCatalogServer = db.prepare(`
+      INSERT INTO servers(
+        name, ansible_alias, hostname, primary_ip, ssh_user, ssh_port, os_family, os_name, os_version,
+        environment, role, location, cockpit_url, notes, ansible_enabled, inventory_shared, inventory_published_signature, status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, 'unknown')
+    `);
+    const incomingServers = catalog?.servers ?? imported.hosts.map((host) => ({
+      alias: host.alias, name: host.alias, hostname: net.isIP(host.address) ? '' : host.address,
+      primaryIp: host.address, sshUser: '', sshPort: host.port, osFamily: 'linux', osName: '', osVersion: '',
+      environment: '', role: '', location: '', cockpitUrl: '', notes: '', ansibleEnabled: true, groups: [],
+    }));
     const serverIdsByAlias = new Map();
-    for (const host of imported.hosts) {
-      const existing = findServer.get(host.alias);
-      const serverId = existing
-        ? (updateServer.run(host.address, host.port, existing.id), Number(existing.id))
-        : Number(insertServer.run(host.alias, host.alias, net.isIP(host.address) ? null : host.address, host.address, host.port).lastInsertRowid);
-      serverIdsByAlias.set(host.alias, serverId);
+    for (const server of incomingServers) {
+      const existing = findServer.get(server.alias);
+      let serverId;
+      if (catalog) {
+        const values = [
+          server.name, server.hostname || null, server.primaryIp, server.sshUser || null, server.sshPort,
+          server.osFamily || 'linux', server.osName || null, server.osVersion || null, server.environment || null,
+          server.role || null, server.location || null, server.cockpitUrl ? normalizeExternalUrl(server.cockpitUrl) : null,
+          server.notes || null, server.ansibleEnabled ? 1 : 0,
+        ];
+        serverId = existing
+          ? (updateCatalogServer.run(...values, existing.id), Number(existing.id))
+          : Number(insertCatalogServer.run(server.name, server.alias, ...values.slice(1)).lastInsertRowid);
+      } else {
+        serverId = existing
+          ? (updateLegacyServer.run(server.primaryIp, server.sshPort, existing.id), Number(existing.id))
+          : Number(insertLegacyServer.run(server.alias, server.alias, server.hostname || null, server.primaryIp, server.sshPort).lastInsertRowid);
+      }
+      serverIdsByAlias.set(server.alias, serverId);
       importedServerIds.push(serverId);
     }
 
     const insertMembership = db.prepare('INSERT INTO server_group_members(server_id, group_id) VALUES (?, ?)');
-    for (const group of imported.groups) {
-      const groupId = groupIds.get(group.name);
-      for (const alias of group.members) insertMembership.run(serverIdsByAlias.get(alias), groupId);
+    const deleteMemberships = db.prepare('DELETE FROM server_group_members WHERE server_id=?');
+    for (const serverId of importedServerIds) deleteMemberships.run(serverId);
+    if (catalog) {
+      for (const server of catalog.servers) {
+        for (const groupName of server.groups) insertMembership.run(serverIdsByAlias.get(server.alias), groupIds.get(groupName));
+      }
+    } else {
+      for (const group of imported.groups) {
+        const groupId = groupIds.get(group.name);
+        for (const alias of group.members) insertMembership.run(serverIdsByAlias.get(alias), groupId);
+      }
     }
 
     const clearNetworkStatus = db.prepare('DELETE FROM server_network_status WHERE server_id=?');
     const markPublished = db.prepare('UPDATE servers SET inventory_published_signature=? WHERE id=?');
-    for (const serverId of importedServerIds) {
-      clearNetworkStatus.run(serverId);
+    for (const serverId of importedServerIds) clearNetworkStatus.run(serverId);
+    for (const host of imported.hosts) {
+      const serverId = serverIdsByAlias.get(host.alias);
       const server = db.prepare('SELECT * FROM servers WHERE id=?').get(serverId);
       markPublished.run(serverInventorySignature(server), serverId);
     }
@@ -1379,16 +1493,52 @@ const importRemoteSemaphoreInventory = async (expectedRemoteHash = '') => {
     action: 'Semaphore inventory imported',
     objectType: 'semaphore_inventory',
     objectId: profile.inventory_id,
-    details: `${imported.hosts.length} hosts · ${imported.groups.length} groups · ${previousManagedDisabled} previous managed hosts disabled`,
+    details: `${imported.hosts.length} managed hosts · ${catalog?.servers.length ?? imported.hosts.length} catalog servers · ${imported.groups.length} groups · ${previousManagedDisabled} previous managed hosts disabled`,
   });
   refreshServerNetworkStatus(importedServerIds).catch((error) => console.warn('[Network] Could not probe imported servers:', error?.message || error));
   return {
     state: 'synced',
     hostsImported: imported.hosts.length,
+    catalogServersImported: catalog?.servers.length ?? imported.hosts.length,
     groupsImported: imported.groups.length,
     previousManagedCount,
     previousManagedDisabled,
   };
+};
+
+let sharedInventoryReconcileRunning = false;
+const reconcileSharedSemaphoreInventory = async () => {
+  if (sharedInventoryReconcileRunning || encryptionKeyMismatch || !APP_ENC_KEY) return;
+  const initialProfile = getSemaphoreProfileRow();
+  if (!initialProfile || initialProfile.inventory_sync_state !== 'synced' || !initialProfile.inventory_last_hash) return;
+  sharedInventoryReconcileRunning = true;
+  try {
+    await queueSemaphoreInventoryOperation(async () => {
+      const profile = getSemaphoreProfileRow();
+      if (!profile || profile.inventory_sync_state !== 'synced' || !profile.inventory_last_hash) return;
+      const localHash = inventoryHash(generateManagedInventory());
+      if (localHash !== profile.inventory_last_hash) {
+        setInventorySyncState(profile.id, 'pending', 'Local inventory changes are waiting to be synchronized.');
+        return;
+      }
+      const remote = await createSemaphoreClient(profile).getInventory(profile.project_id, profile.inventory_id);
+      const remoteContent = normalizeInventoryContent(remote?.inventory ?? '');
+      const remoteHash = inventoryHash(remoteContent);
+      if (remoteHash === profile.inventory_last_hash) return;
+      const parsed = parseSemaphoreInventory(remoteContent);
+      if (!parsed.catalog) {
+        setInventorySyncState(profile.id, 'conflict', 'The remote inventory changed without portable Rakit catalog metadata. Review both versions.');
+        return;
+      }
+      await importRemoteSemaphoreInventory(remoteHash, localHash);
+    });
+  } catch (error) {
+    if (error?.code !== 'LOCAL_INVENTORY_CHANGED' && error?.code !== 'INVENTORY_CHANGED') {
+      console.warn('[Semaphore] Shared inventory refresh failed:', error?.message || error);
+    }
+  } finally {
+    sharedInventoryReconcileRunning = false;
+  }
 };
 
 const syncAfterCatalogChange = async (previousInventory = null) => {
@@ -1417,6 +1567,7 @@ const replaceServerMemberships = (serverId, rawGroupIds) => {
     const insert = db.prepare('INSERT INTO server_group_members(server_id, group_id) VALUES (?, ?)');
     for (const groupId of groupIds) {
       if (!db.prepare('SELECT id FROM server_groups WHERE id=?').get(groupId)) throw new Error(`Server group ${groupId} does not exist`);
+      db.prepare('UPDATE server_groups SET inventory_shared=1 WHERE id=?').run(groupId);
       insert.run(serverId, groupId);
     }
   });
@@ -2521,8 +2672,8 @@ app.get('/api/semaphore/profile/:profileId/inventory-diff', async (req, res) => 
     const desired = generateManagedInventory();
     const remoteContent = normalizeInventoryContent(remote?.inventory ?? '');
     res.json({
-      desired,
-      remote: remoteContent,
+      desired: inventoryPreview(desired),
+      remote: inventoryPreview(remoteContent),
       remoteHash: inventoryHash(remoteContent),
       changed: inventoryHash(desired) !== inventoryHash(remoteContent),
       state: profile.inventory_sync_state,
@@ -2555,7 +2706,7 @@ app.post('/api/semaphore/profile/:profileId/inventory-import', async (req, res) 
   const expectedRemoteHash = clampText(req.body?.expectedRemoteHash, 64);
   if (!/^[a-f0-9]{64}$/.test(expectedRemoteHash)) return res.status(400).json({ error: 'Reload the inventory preview before choosing a source' });
   try {
-    const result = await importRemoteSemaphoreInventory(expectedRemoteHash);
+    const result = await queueSemaphoreInventoryOperation(() => importRemoteSemaphoreInventory(expectedRemoteHash));
     res.json({ ok: true, result, profile: mapSemaphoreProfileRow(getSemaphoreProfileRow()) });
   } catch (error) {
     if (error?.code === 'INVENTORY_CHANGED') {
@@ -2618,6 +2769,7 @@ app.patch('/api/server-groups/:groupId', async (req, res) => {
   }
   if ('description' in req.body) assign('description', clampText(req.body.description, 300) || null);
   if ('color' in req.body) assign('color', clampText(req.body.color, 30) || null);
+  if (!Boolean(current.inventory_shared)) assign('inventory_shared', 1);
   if (!sets.length) return res.status(400).json({ error: 'Nothing to update' });
   const previousInventory = generateManagedInventory();
   try {
@@ -2744,6 +2896,7 @@ app.patch('/api/servers/:serverId', async (req, res) => {
     if (!SERVER_STATUS.has(req.body.status)) return res.status(400).json({ error: 'Invalid server status' });
     assign('status', req.body.status);
   }
+  if (!current.inventoryShared) assign('inventory_shared', 1);
   if (!sets.length && !('groupIds' in req.body)) return res.status(400).json({ error: 'Nothing to update' });
   const networkTargetChanged = sets.some((set) => set.startsWith('primary_ip=') || set.startsWith('ssh_port='));
   const previousInventory = generateManagedInventory();
@@ -3752,6 +3905,7 @@ const server = app.listen(PORT, ()=> {
   refreshServerNetworkStatus().catch((error) => console.warn('[Network] Server probe failed', error?.message || error));
   reconcileActiveSemaphoreActions().catch((error) => console.warn('[Semaphore] Task reconciliation failed', error?.message || error));
   reconcileScheduledSemaphoreTasks().catch((error) => console.warn('[Semaphore] Scheduled task import failed', error?.message || error));
+  reconcileSharedSemaphoreInventory().catch((error) => console.warn('[Semaphore] Shared inventory refresh failed', error?.message || error));
 });
 
 let semaphoreReconcileRunning = false;
@@ -3898,6 +4052,11 @@ const semaphoreReconcileTimer = setInterval(() => {
 }, 10_000);
 semaphoreReconcileTimer.unref();
 
+const semaphoreInventoryPullTimer = setInterval(() => {
+  reconcileSharedSemaphoreInventory().catch((error) => console.warn('[Semaphore] Shared inventory refresh failed', error?.message || error));
+}, SEMAPHORE_INVENTORY_PULL_INTERVAL_MS);
+semaphoreInventoryPullTimer.unref();
+
 const wolScheduleTimer = setInterval(() => {
   runWolSchedules().catch((error) => console.warn('[WOL] Schedule runner failed', error?.message || error));
 }, 30_000);
@@ -3920,6 +4079,7 @@ const shutdown = (signal) => {
   clearInterval(serverNetworkProbeTimer);
   clearInterval(auditCleanupTimer);
   clearInterval(semaphoreReconcileTimer);
+  clearInterval(semaphoreInventoryPullTimer);
   server.close(() => {
     try {
       db.close();

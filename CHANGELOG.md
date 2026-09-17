@@ -28,6 +28,8 @@ All notable changes to this project will be documented in this file.
 - Added sortable Servers columns with visible direction indicators, consistent last-event timestamps, and lighter Health/Network labels.
 - Inventory-changing server and group edits synchronize automatically and briefly confirm success in the toolbar; unavailable Semaphore instances leave the complete local projection pending for a safe manual retry, while metadata-only edits do not create a false pending state.
 - Added an optional per-server SSH user used by the Management shortcut and included in Servers snapshot exports.
+- Added a versioned portable Rakit catalog inside Semaphore inventory comments, preserving display group names, full server metadata, group membership and unmanaged catalogue entries across Rakit instances without changing Ansible behavior.
+- Rakit instances sharing one managed inventory now pull newer remote catalogue revisions automatically when their local copy is clean; genuinely concurrent local edits still stop as an explicit conflict instead of silently losing data.
 
 ### Bug fixes
 - Fixed explicit `Ports per row` layouts using odd/even port placement instead of filling each row sequentially.

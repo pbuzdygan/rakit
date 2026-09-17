@@ -292,6 +292,7 @@ CREATE TABLE IF NOT EXISTS servers (
   notes TEXT,
   linked_device_id INTEGER,
   ansible_enabled INTEGER NOT NULL DEFAULT 1,
+  inventory_shared INTEGER NOT NULL DEFAULT 1,
   inventory_published_signature TEXT,
   status TEXT NOT NULL DEFAULT 'unknown',
   health_checked_at TEXT,
@@ -324,6 +325,7 @@ CREATE TABLE IF NOT EXISTS server_groups (
   ansible_name TEXT NOT NULL UNIQUE COLLATE NOCASE,
   description TEXT,
   color TEXT,
+  inventory_shared INTEGER NOT NULL DEFAULT 1,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );

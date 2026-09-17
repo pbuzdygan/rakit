@@ -39,4 +39,6 @@ services:
       # Enable only when Rakit is served through HTTPS.
       APP_COOKIE_SECURE: ${APP_COOKIE_SECURE:-false}
       TZ: ${TZ:-Europe/Warsaw} #IANA time zone used by the UI and WOL schedules
+      # How often a clean instance checks a shared Semaphore inventory for a newer Rakit catalog.
+      SEMAPHORE_INVENTORY_PULL_INTERVAL_MS: ${SEMAPHORE_INVENTORY_PULL_INTERVAL_MS:-30000}
       NODE_ENV: production

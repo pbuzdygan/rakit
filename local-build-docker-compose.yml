@@ -26,6 +26,7 @@ services:
       APP_PIN_BLOCK_MINUTES: ${APP_PIN_BLOCK_MINUTES:-15}
       APP_COOKIE_SECURE: ${APP_COOKIE_SECURE:-false}
       TZ: ${TZ:-Europe/Warsaw}
+      SEMAPHORE_INVENTORY_PULL_INTERVAL_MS: ${SEMAPHORE_INVENTORY_PULL_INTERVAL_MS:-30000}
     volumes:
       - ./data:/data
 #    ports:
