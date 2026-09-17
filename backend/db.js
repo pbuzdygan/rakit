@@ -51,6 +51,7 @@ ensureColumn('cabinets', 'numbering_direction', "TEXT NOT NULL DEFAULT 'bottom-u
 ensureColumn('wol_machines', 'probe_port', 'INTEGER');
 ensureColumn('ipdash_scope_hosts', 'linked_device_id', 'INTEGER REFERENCES cabinet_devices(id) ON DELETE SET NULL');
 ensureColumn('servers', 'inventory_published_signature', 'TEXT');
+ensureColumn('servers', 'health_checked_at', 'TEXT');
 ensureColumn('server_update_status', 'last_update_at', 'TEXT');
 ensureColumn('server_update_status', 'last_update_result', 'TEXT');
 ensureColumn('server_update_status', 'last_update_task_id', 'INTEGER');

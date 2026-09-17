@@ -108,6 +108,9 @@ services:
       # Optional WOL reachability tuning (milliseconds)
       # - WOL_PROBE_TIMEOUT_MS=1200
       # - WOL_STATUS_CACHE_MS=20000
+      # Optional Servers network reachability tuning (milliseconds)
+      # - SERVER_PROBE_TIMEOUT_MS=1500
+      # - SERVER_PROBE_INTERVAL_MS=60000
       # Optional Semaphore integration HTTP client tuning
       # - SEMAPHORE_TIMEOUT_MS=15000
       # - SEMAPHORE_MAX_RESPONSE_MB=10

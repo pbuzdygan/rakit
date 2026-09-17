@@ -19,6 +19,8 @@ All notable changes to this project will be documented in this file.
 - Semaphore tasks launched from Rakit are reconciled in the backend even when the Servers screen is closed, and unfinished actions resume visible polling when the inspector is reopened.
 - Server health checks can now be launched from Rakit; successful health or update checks set the host online and retain kernel and uptime facts.
 - Added per-server managed-inventory synchronization indicators and the timestamp/result of the latest package update.
+- Added an independent per-server network reachability signal, refreshed by Rakit over the management address and SSH port every minute.
+- Separated health from package checks: only health tasks now update the Health state and Last health timestamp.
 - Scheduled Semaphore tasks now import per-host health, update-check, package-update and reboot results, while tasks launched manually in Semaphore remain external to Rakit.
 
 ### Bug fixes

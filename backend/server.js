@@ -86,6 +86,8 @@ const ENCRYPTION_RESET_MESSAGE =
   'APP_ENC_KEY changed. Restore the previous key or reset encrypted profiles to continue.';
 const MAX_DEVICE_PORTS = 48;
 const AUDIT_RETENTION_DAYS = boundedNumber(process.env.AUDIT_RETENTION_DAYS, 0, 0, 3650);
+const SERVER_PROBE_TIMEOUT_MS = boundedNumber(process.env.SERVER_PROBE_TIMEOUT_MS, 1500, 250, 10000);
+const SERVER_PROBE_INTERVAL_MS = boundedNumber(process.env.SERVER_PROBE_INTERVAL_MS, 60000, 10000, 3600000);
 const SESSION_COOKIE = 'rakit_session';
 const SESSION_TTL_MS = boundedNumber(process.env.APP_SESSION_TTL_MINUTES, 480, 15, 10080) * 60_000;
 const MAX_SESSIONS = Math.floor(boundedNumber(process.env.APP_MAX_SESSIONS, 256, 16, 4096));
@@ -361,6 +363,7 @@ const mapDeviceRow = (row) => ({
   managementIp: row.management_ip ?? '',
   assetTag: row.asset_tag ?? '',
   status: row.status ?? 'unknown',
+  lastHealthAt: toUtcISOString(row.health_checked_at),
   face: row.face ?? 'front',
   rackLane: row.rack_lane ?? 'full',
 });
@@ -614,6 +617,55 @@ const mapWithConcurrency = async (items, limit, mapper) => {
   };
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
   return results;
+};
+
+const probeServerNetwork = (serverRow) => new Promise((resolve) => {
+  const startedAt = Date.now();
+  const socket = net.createConnection({ host: serverRow.primary_ip, port: serverRow.ssh_port });
+  let settled = false;
+  const finish = (status, detail = '') => {
+    if (settled) return;
+    settled = true;
+    const latencyMs = Math.max(0, Date.now() - startedAt);
+    socket.destroy();
+    resolve({ status, latencyMs, detail: clampText(detail, 240) });
+  };
+  socket.setTimeout(SERVER_PROBE_TIMEOUT_MS);
+  socket.once('connect', () => finish('reachable'));
+  socket.once('timeout', () => finish('unreachable', `TCP timeout after ${SERVER_PROBE_TIMEOUT_MS} ms`));
+  socket.once('error', (error) => {
+    if (error?.code === 'ECONNREFUSED') finish('reachable', 'Host reachable; TCP port is closed');
+    else finish('unreachable', error?.code || error?.message || 'TCP probe failed');
+  });
+});
+
+let serverNetworkProbeRunning = false;
+const refreshServerNetworkStatus = async (serverIds = null) => {
+  const isFullRefresh = !Array.isArray(serverIds);
+  if (isFullRefresh && serverNetworkProbeRunning) return;
+  if (isFullRefresh) serverNetworkProbeRunning = true;
+  try {
+    const ids = Array.isArray(serverIds) ? [...new Set(serverIds.map(Number).filter(Number.isInteger))] : [];
+    const rows = ids.length
+      ? db.prepare(`SELECT id, primary_ip, ssh_port FROM servers WHERE id IN (${ids.map(() => '?').join(',')})`).all(...ids)
+      : isFullRefresh ? db.prepare('SELECT id, primary_ip, ssh_port FROM servers ORDER BY id').all() : [];
+    await mapWithConcurrency(rows, 10, async (serverRow) => {
+      const result = await probeServerNetwork(serverRow);
+      try {
+        db.prepare(`
+          INSERT INTO server_network_status(server_id, status, checked_at, latency_ms, detail)
+          VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?)
+          ON CONFLICT(server_id) DO UPDATE SET
+            status=excluded.status, checked_at=CURRENT_TIMESTAMP,
+            latency_ms=excluded.latency_ms, detail=excluded.detail
+        `).run(serverRow.id, result.status, result.latencyMs, result.detail || null);
+      } catch (error) {
+        if (!/FOREIGN KEY/i.test(error?.message || '')) throw error;
+      }
+    });
+  } finally {
+    if (isFullRefresh) serverNetworkProbeRunning = false;
+  }
 };
 
 const listCabinets = () =>
@@ -1061,6 +1113,10 @@ const mapServerRow = (row) => {
   checkResult: row.check_result ?? 'never',
   lastUpdateAt: toUtcISOString(row.last_update_at),
   lastUpdateResult: row.last_update_result ?? 'never',
+  networkStatus: row.network_status ?? 'unknown',
+  networkCheckedAt: toUtcISOString(row.network_checked_at),
+  networkLatencyMs: row.network_latency_ms ?? null,
+  networkDetail: row.network_detail ?? '',
   createdAt: toUtcISOString(row.created_at),
   updatedAt: toUtcISOString(row.updated_at),
   });
@@ -1069,9 +1125,12 @@ const mapServerRow = (row) => {
 const SERVER_SELECT = `
   SELECT s.*, u.updates_available, u.security_updates, u.reboot_required,
     u.kernel, u.uptime_seconds, u.checked_at, u.check_result,
+    n.status AS network_status, n.checked_at AS network_checked_at,
+    n.latency_ms AS network_latency_ms, n.detail AS network_detail,
     d.device_type, d.model AS device_model, c.name AS cabinet_name
   FROM servers s
   LEFT JOIN server_update_status u ON u.server_id=s.id
+  LEFT JOIN server_network_status n ON n.server_id=s.id
   LEFT JOIN cabinet_devices d ON d.id=s.linked_device_id
   LEFT JOIN cabinets c ON c.id=d.cabinet_id
 `;
@@ -1362,16 +1421,28 @@ const saveUpdateCheckResult = (serverId, result, taskId, finishedAt) => {
   `).run(serverId, result.updates, result.security, result.rebootRequired ? 1 : 0, result.kernel || null, result.uptimeSeconds, finishedAt, taskId, JSON.stringify(result));
 };
 
-const saveHealthResult = (serverId, result, taskId, finishedAt) => {
-  return db.prepare(`
-    INSERT INTO server_update_status(server_id, kernel, uptime_seconds, checked_at, source_task_id)
-    VALUES (?, ?, ?, ${resultTimeSql}, ?)
-    ON CONFLICT(server_id) DO UPDATE SET
-      kernel=excluded.kernel, uptime_seconds=excluded.uptime_seconds,
-      checked_at=excluded.checked_at, source_task_id=excluded.source_task_id
-    WHERE server_update_status.checked_at IS NULL OR datetime(excluded.checked_at) >= datetime(server_update_status.checked_at)
-  `).run(serverId, result.kernel || null, result.uptimeSeconds, finishedAt, taskId);
+const saveHealthStatus = (serverId, healthStatus, finishedAt) => db.prepare(`
+  UPDATE servers
+  SET status=CASE WHEN status='maintenance' THEN status ELSE ? END,
+      health_checked_at=${resultTimeSql}
+  WHERE id=? AND (health_checked_at IS NULL OR datetime(health_checked_at) <= ${resultTimeSql})
+`).run(healthStatus, finishedAt, serverId, finishedAt);
+
+const saveHealthResult = (serverId, result, finishedAt) => {
+  const save = db.transaction(() => {
+    const state = saveHealthStatus(serverId, 'online', finishedAt);
+    if (!state.changes) return state;
+    db.prepare(`
+      INSERT INTO server_update_status(server_id, kernel, uptime_seconds)
+      VALUES (?, ?, ?)
+      ON CONFLICT(server_id) DO UPDATE SET kernel=excluded.kernel, uptime_seconds=excluded.uptime_seconds
+    `).run(serverId, result.kernel || null, result.uptimeSeconds);
+    return state;
+  });
+  return save();
 };
+
+const saveHealthFailure = (serverId, finishedAt) => saveHealthStatus(serverId, 'error', finishedAt);
 
 const saveUpdateOperationResult = (serverId, result, taskId, finishedAt) => {
   db.prepare(`
@@ -2420,7 +2491,9 @@ app.post('/api/servers', async (req, res) => {
     replaceServerMemberships(Number(info.lastInsertRowid), req.body?.groupIds);
     recordAudit({ action: 'Server created', objectType: 'server', objectId: info.lastInsertRowid, details: `${name} · ${primaryIp}` });
     const sync = await syncAfterCatalogChange();
-    res.status(201).json({ ok: true, server: getServer(Number(info.lastInsertRowid)), inventory: sync });
+    const serverId = Number(info.lastInsertRowid);
+    await refreshServerNetworkStatus([serverId]).catch((error) => console.warn(`[Network] Could not probe server ${serverId}:`, error?.message || error));
+    res.status(201).json({ ok: true, server: getServer(serverId), inventory: sync });
   } catch (error) {
     res.status(/UNIQUE/i.test(error?.message || '') ? 409 : 400).json({ error: /UNIQUE/i.test(error?.message || '') ? 'Ansible alias already exists' : error?.message || 'Could not create server' });
   }
@@ -2475,6 +2548,7 @@ app.patch('/api/servers/:serverId', async (req, res) => {
     assign('status', req.body.status);
   }
   if (!sets.length && !('groupIds' in req.body)) return res.status(400).json({ error: 'Nothing to update' });
+  const networkTargetChanged = sets.some((set) => set.startsWith('primary_ip=') || set.startsWith('ssh_port='));
   try {
     const update = db.transaction(() => {
       if (sets.length) {
@@ -2484,6 +2558,10 @@ app.patch('/api/servers/:serverId', async (req, res) => {
       if ('groupIds' in req.body) replaceServerMemberships(serverId, req.body.groupIds);
     });
     update();
+    if (networkTargetChanged) {
+      db.prepare('DELETE FROM server_network_status WHERE server_id=?').run(serverId);
+      await refreshServerNetworkStatus([serverId]).catch((error) => console.warn(`[Network] Could not probe server ${serverId}:`, error?.message || error));
+    }
     recordAudit({ action: 'Server updated', objectType: 'server', objectId: serverId, details: current.name });
     const sync = await syncAfterCatalogChange();
     res.json({ ok: true, server: getServer(serverId), inventory: sync });
@@ -2575,10 +2653,8 @@ const reconcileServerAction = async (actionId) => {
   db.prepare(`UPDATE server_actions SET status=?, started_at=COALESCE(?, started_at), finished_at=COALESCE(?, finished_at), error_message=? WHERE id=?`).run(
     status, startedAt, finishedAt, status === 'failed' ? clampText(task?.message || 'Semaphore task failed', 500) : null, actionId,
   );
-  if (status === 'success' && actionRow.server_id && ['check_updates', 'health_check'].includes(actionRow.action)) {
-    db.prepare("UPDATE servers SET status=CASE WHEN status='maintenance' THEN status ELSE 'online' END WHERE id=?").run(actionRow.server_id);
-  } else if (status === 'failed' && actionRow.server_id && ['check_updates', 'health_check'].includes(actionRow.action)) {
-    db.prepare("UPDATE servers SET status=CASE WHEN status='maintenance' THEN status ELSE 'error' END WHERE id=?").run(actionRow.server_id);
+  if (status === 'failed' && actionRow.server_id && actionRow.action === 'health_check') {
+    saveHealthFailure(actionRow.server_id, finishedAt);
   }
   if (actionRow.action === 'check_updates' && status === 'success' && actionRow.server_id) {
     const server = getServer(actionRow.server_id);
@@ -2601,11 +2677,12 @@ const reconcileServerAction = async (actionId) => {
     const output = await getSemaphoreTaskOutput(client, profile.project_id, actionRow.semaphore_task_id);
     const result = server ? parseRakitHealthResult(output, server.ansibleAlias) : null;
     if (result) {
-      saveHealthResult(server.id, result, actionRow.semaphore_task_id, finishedAt);
+      saveHealthResult(server.id, result, finishedAt);
       db.prepare('UPDATE server_actions SET result_summary=? WHERE id=?').run(
         `Online · disk ${result.rootDiskPercent ?? '?'}% · ${result.processorVcpus ?? '?'} vCPU · ${result.memoryMb ?? '?'} MB RAM`, actionId,
       );
     } else {
+      saveHealthStatus(server.id, 'online', finishedAt);
       db.prepare("UPDATE server_actions SET result_summary='Host reached; task succeeded without a RAKIT_HEALTH_V1 record' WHERE id=?").run(actionId);
     }
   }
@@ -3472,6 +3549,7 @@ const server = app.listen(PORT, ()=> {
   if (removedAuditEvents) console.log(`[Audit] Removed ${removedAuditEvents} events outside the ${AUDIT_RETENTION_DAYS}-day retention window`);
   if (!SESSION_COOKIE_SECURE) console.warn('[Security] Session cookie Secure flag is disabled; use HTTPS and APP_COOKIE_SECURE=true when possible');
   runWolSchedules().catch((error) => console.warn('[WOL] Schedule runner failed', error?.message || error));
+  refreshServerNetworkStatus().catch((error) => console.warn('[Network] Server probe failed', error?.message || error));
   reconcileActiveSemaphoreActions().catch((error) => console.warn('[Semaphore] Task reconciliation failed', error?.message || error));
   reconcileScheduledSemaphoreTasks().catch((error) => console.warn('[Semaphore] Scheduled task import failed', error?.message || error));
 });
@@ -3529,14 +3607,6 @@ const scheduledTaskTargetsServer = (task, server) => {
   return !limits.length || limits.includes('all') || limits.includes(server.ansible_alias);
 };
 
-const scheduledResultIsCurrent = (serverId, finishedAt) => {
-  const current = db.prepare('SELECT checked_at FROM server_update_status WHERE server_id=?').get(serverId)?.checked_at;
-  if (!current) return true;
-  const currentTime = Date.parse(toUtcISOString(current));
-  const taskTime = Date.parse(finishedAt);
-  return !Number.isFinite(currentTime) || !Number.isFinite(taskTime) || taskTime >= currentTime;
-};
-
 const importScheduledSemaphoreTask = async (profile, client, task) => {
   const taskId = Number(task?.id);
   const scheduleId = Number(task?.schedule_id ?? task?.scheduleId);
@@ -3556,16 +3626,14 @@ const importScheduledSemaphoreTask = async (profile, client, task) => {
       if (action === 'check_updates') {
         const result = parseRakitTaskResult(output, server.ansible_alias);
         if (result) {
-          const saved = saveUpdateCheckResult(server.id, result, taskId, finishedAt);
-          if (saved.changes) db.prepare("UPDATE servers SET status=CASE WHEN status='maintenance' THEN status ELSE 'online' END WHERE id=?").run(server.id);
+          saveUpdateCheckResult(server.id, result, taskId, finishedAt);
           insertScheduledServerAction(profile, task, server, action, `${result.updates} updates · ${result.security} security`);
           hostResultImported = true;
         }
       } else if (action === 'health_check') {
         const result = parseRakitHealthResult(output, server.ansible_alias);
         if (result) {
-          const saved = saveHealthResult(server.id, result, taskId, finishedAt);
-          if (saved.changes) db.prepare("UPDATE servers SET status=CASE WHEN status='maintenance' THEN status ELSE 'online' END WHERE id=?").run(server.id);
+          saveHealthResult(server.id, result, finishedAt);
           insertScheduledServerAction(profile, task, server, action, `Online · disk ${result.rootDiskPercent ?? '?'}% · ${result.processorVcpus ?? '?'} vCPU · ${result.memoryMb ?? '?'} MB RAM`);
           hostResultImported = true;
         }
@@ -3587,9 +3655,7 @@ const importScheduledSemaphoreTask = async (profile, client, task) => {
       if (hostResultImported) {
         importedHosts += 1;
       } else if (status !== 'success' && scheduledTaskTargetsServer(task, server)) {
-        if (['check_updates', 'health_check'].includes(action) && scheduledResultIsCurrent(server.id, finishedAt)) {
-          db.prepare("UPDATE servers SET status=CASE WHEN status='maintenance' THEN status ELSE 'error' END WHERE id=?").run(server.id);
-        }
+        if (action === 'health_check') saveHealthFailure(server.id, finishedAt);
         if (action === 'update_packages' && status === 'failed') saveFailedUpdateOperation(server.id, taskId, finishedAt);
         insertScheduledServerAction(profile, task, server, action, clampText(task?.message || 'Scheduled Semaphore task failed', 500), status);
         importedHosts += 1;
@@ -3637,6 +3703,11 @@ const wolScheduleTimer = setInterval(() => {
 }, 30_000);
 wolScheduleTimer.unref();
 
+const serverNetworkProbeTimer = setInterval(() => {
+  refreshServerNetworkStatus().catch((error) => console.warn('[Network] Server probe failed', error?.message || error));
+}, SERVER_PROBE_INTERVAL_MS);
+serverNetworkProbeTimer.unref();
+
 const auditCleanupTimer = setInterval(cleanupAuditEvents, 24 * 60 * 60 * 1000);
 auditCleanupTimer.unref();
 
@@ -3646,6 +3717,7 @@ const shutdown = (signal) => {
   shuttingDown = true;
   console.log(`[Runtime] ${signal} received; closing HTTP server`);
   clearInterval(wolScheduleTimer);
+  clearInterval(serverNetworkProbeTimer);
   clearInterval(auditCleanupTimer);
   clearInterval(semaphoreReconcileTimer);
   server.close(() => {

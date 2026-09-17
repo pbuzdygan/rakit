@@ -293,6 +293,7 @@ CREATE TABLE IF NOT EXISTS servers (
   ansible_enabled INTEGER NOT NULL DEFAULT 1,
   inventory_published_signature TEXT,
   status TEXT NOT NULL DEFAULT 'unknown',
+  health_checked_at TEXT,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY(linked_device_id) REFERENCES cabinet_devices(id) ON DELETE SET NULL,
@@ -305,6 +306,16 @@ AFTER UPDATE ON servers
 BEGIN
   UPDATE servers SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
 END;
+
+CREATE TABLE IF NOT EXISTS server_network_status (
+  server_id INTEGER PRIMARY KEY,
+  status TEXT NOT NULL DEFAULT 'unknown',
+  checked_at TEXT,
+  latency_ms INTEGER,
+  detail TEXT,
+  FOREIGN KEY(server_id) REFERENCES servers(id) ON DELETE CASCADE,
+  CHECK(status IN ('unknown', 'reachable', 'unreachable'))
+);
 
 CREATE TABLE IF NOT EXISTS server_groups (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
