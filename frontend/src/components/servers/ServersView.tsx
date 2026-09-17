@@ -214,7 +214,7 @@ function ServerNetworkState({ server, timeZone }: { server: Server; timeZone: st
   const checked = server.networkCheckedAt ? formatDateTime(server.networkCheckedAt, timeZone) : 'not checked yet';
   const latency = server.networkLatencyMs == null ? '' : ` · ${server.networkLatencyMs} ms`;
   const detail = server.networkDetail ? ` · ${server.networkDetail}` : '';
-  return <span className={`ops-state ops-state--${tone}`} title={`${server.primaryIp}:${server.sshPort} · ${checked}${latency}${detail}`}><span className="ops-status-dot" />{label}</span>;
+  return <span className={`ops-state ops-state--${tone}`} title={`${server.primaryIp} · ${checked}${latency}${detail}`}><span className="ops-status-dot" />{label}</span>;
 }
 
 function ServerInventoryState({ server }: { server: Server }) {

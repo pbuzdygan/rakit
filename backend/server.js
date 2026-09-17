@@ -7,6 +7,7 @@ import crypto from 'crypto';
 import dns from 'dns/promises';
 import dgram from 'dgram';
 import net from 'net';
+import { spawn } from 'child_process';
 import { IpDashClient } from './ipdashClient.js';
 import { SemaphoreClient, normalizeSemaphoreUrl } from './semaphoreClient.js';
 
@@ -88,6 +89,13 @@ const MAX_DEVICE_PORTS = 48;
 const AUDIT_RETENTION_DAYS = boundedNumber(process.env.AUDIT_RETENTION_DAYS, 0, 0, 3650);
 const SERVER_PROBE_TIMEOUT_MS = boundedNumber(process.env.SERVER_PROBE_TIMEOUT_MS, 1500, 250, 10000);
 const SERVER_PROBE_INTERVAL_MS = boundedNumber(process.env.SERVER_PROBE_INTERVAL_MS, 60000, 10000, 3600000);
+const REQUESTED_SERVER_PROBE_MODE = String(process.env.SERVER_PROBE_MODE || 'icmp').trim().toLowerCase();
+const SERVER_PROBE_MODE = ['icmp', 'tcp', 'icmp-tcp'].includes(REQUESTED_SERVER_PROBE_MODE)
+  ? REQUESTED_SERVER_PROBE_MODE
+  : 'icmp';
+if (SERVER_PROBE_MODE !== REQUESTED_SERVER_PROBE_MODE) {
+  console.warn(`[Network] Unsupported SERVER_PROBE_MODE "${REQUESTED_SERVER_PROBE_MODE}"; using icmp`);
+}
 const SESSION_COOKIE = 'rakit_session';
 const SESSION_TTL_MS = boundedNumber(process.env.APP_SESSION_TTL_MINUTES, 480, 15, 10080) * 60_000;
 const MAX_SESSIONS = Math.floor(boundedNumber(process.env.APP_MAX_SESSIONS, 256, 16, 4096));
@@ -619,7 +627,38 @@ const mapWithConcurrency = async (items, limit, mapper) => {
   return results;
 };
 
-const probeServerNetwork = (serverRow) => new Promise((resolve) => {
+const probeServerIcmp = (serverRow) => new Promise((resolve) => {
+  const startedAt = Date.now();
+  const waitSeconds = Math.max(1, Math.ceil(SERVER_PROBE_TIMEOUT_MS / 1000));
+  const child = spawn('/bin/ping', ['-n', '-q', '-c', '1', '-W', String(waitSeconds), '--', serverRow.primary_ip], {
+    stdio: ['ignore', 'ignore', 'pipe'],
+  });
+  let settled = false;
+  let stderr = '';
+  const finish = (status, detail) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(killTimer);
+    if (child.exitCode === null) child.kill('SIGKILL');
+    resolve({
+      status,
+      latencyMs: Math.max(0, Date.now() - startedAt),
+      detail: clampText(detail, 240),
+    });
+  };
+  child.stderr.on('data', (chunk) => {
+    if (stderr.length < 240) stderr += chunk.toString('utf8');
+  });
+  child.once('error', (error) => finish('unreachable', `ICMP probe unavailable: ${error?.code || error?.message || 'spawn failed'}`));
+  child.once('close', (code) => {
+    if (code === 0) finish('reachable', 'ICMP echo reply');
+    else finish('unreachable', stderr.trim() || 'No ICMP echo reply');
+  });
+  const killTimer = setTimeout(() => finish('unreachable', `No ICMP echo reply within ${SERVER_PROBE_TIMEOUT_MS} ms`), SERVER_PROBE_TIMEOUT_MS);
+  killTimer.unref();
+});
+
+const probeServerTcp = (serverRow) => new Promise((resolve) => {
   const startedAt = Date.now();
   const socket = net.createConnection({ host: serverRow.primary_ip, port: serverRow.ssh_port });
   let settled = false;
@@ -631,13 +670,24 @@ const probeServerNetwork = (serverRow) => new Promise((resolve) => {
     resolve({ status, latencyMs, detail: clampText(detail, 240) });
   };
   socket.setTimeout(SERVER_PROBE_TIMEOUT_MS);
-  socket.once('connect', () => finish('reachable'));
-  socket.once('timeout', () => finish('unreachable', `TCP timeout after ${SERVER_PROBE_TIMEOUT_MS} ms`));
+  socket.once('connect', () => finish('reachable', `TCP port ${serverRow.ssh_port} accepted a connection`));
+  socket.once('timeout', () => finish('unreachable', `TCP port ${serverRow.ssh_port} timed out after ${SERVER_PROBE_TIMEOUT_MS} ms`));
   socket.once('error', (error) => {
-    if (error?.code === 'ECONNREFUSED') finish('reachable', 'Host reachable; TCP port is closed');
+    if (error?.code === 'ECONNREFUSED') finish('reachable', `Host reachable; TCP port ${serverRow.ssh_port} is closed`);
     else finish('unreachable', error?.code || error?.message || 'TCP probe failed');
   });
 });
+
+const probeServerNetwork = async (serverRow) => {
+  if (SERVER_PROBE_MODE === 'tcp') return probeServerTcp(serverRow);
+  const icmpResult = await probeServerIcmp(serverRow);
+  if (SERVER_PROBE_MODE !== 'icmp-tcp' || icmpResult.status === 'reachable') return icmpResult;
+  const tcpResult = await probeServerTcp(serverRow);
+  return {
+    ...tcpResult,
+    detail: clampText(`ICMP failed; ${tcpResult.detail}`, 240),
+  };
+};
 
 let serverNetworkProbeRunning = false;
 const refreshServerNetworkStatus = async (serverIds = null) => {
