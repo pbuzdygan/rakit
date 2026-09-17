@@ -25,6 +25,9 @@ All notable changes to this project will be documented in this file.
 - Improved the Servers mobile layout with compact server cards, responsive controls and a full-width inspector without edge shadows.
 - Updated snapshot export module names to match the current navigation and added a detailed Servers worksheet.
 - Added a bidirectional first inventory synchronization choice: keep and publish the Rakit catalogue, or safely import a compatible remote Semaphore inventory as the initial local source of truth.
+- Added sortable Servers columns with visible direction indicators, consistent last-event timestamps, and lighter Health/Network labels.
+- Inventory-changing server and group edits synchronize automatically and briefly confirm success in the toolbar; unavailable Semaphore instances leave the complete local projection pending for a safe manual retry, while metadata-only edits do not create a false pending state.
+- Added an optional per-server SSH user used by the Management shortcut and included in Servers snapshot exports.
 
 ### Bug fixes
 - Fixed explicit `Ports per row` layouts using odd/even port placement instead of filling each row sequentially.
@@ -34,6 +37,7 @@ All notable changes to this project will be documented in this file.
 - Added an explicit root privilege preflight to update-check, package-update and reboot playbooks so missing Semaphore sudo credentials fail before APT or reboot operations.
 - Fixed multi-host scheduled task results updating only one server, and use the Semaphore completion time for imported results.
 - Normalized common backslash variants of IANA time zones such as `europe\\warsaw` to `Europe/Warsaw`.
+- Fixed the Servers list omitting persisted health-check and package-update timestamps, and corrected the Ansible inventory icon in light mode.
 
 ## [1.3.0]
 

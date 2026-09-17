@@ -1138,6 +1138,7 @@ const mapServerRow = (row) => {
   ansibleAlias: row.ansible_alias,
   hostname: row.hostname ?? '',
   primaryIp: row.primary_ip,
+  sshUser: row.ssh_user ?? '',
   sshPort: row.ssh_port,
   osFamily: row.os_family ?? 'linux',
   osName: row.os_name ?? '',
@@ -1161,6 +1162,7 @@ const mapServerRow = (row) => {
   kernel: row.kernel ?? '',
   uptimeSeconds: row.uptime_seconds ?? null,
   lastCheckedAt: toUtcISOString(row.checked_at),
+  lastHealthAt: toUtcISOString(row.health_checked_at),
   checkResult: row.check_result ?? 'never',
   lastUpdateAt: toUtcISOString(row.last_update_at),
   lastUpdateResult: row.last_update_result ?? 'never',
@@ -1176,6 +1178,7 @@ const mapServerRow = (row) => {
 const SERVER_SELECT = `
   SELECT s.*, u.updates_available, u.security_updates, u.reboot_required,
     u.kernel, u.uptime_seconds, u.checked_at, u.check_result,
+    u.last_update_at, u.last_update_result, u.last_update_task_id,
     n.status AS network_status, n.checked_at AS network_checked_at,
     n.latency_ms AS network_latency_ms, n.detail AS network_detail,
     d.device_type, d.model AS device_model, c.name AS cabinet_name
@@ -1294,6 +1297,16 @@ const syncSemaphoreInventory = async ({ force = false, expectedRemoteHash = '' }
   }
 };
 
+let semaphoreInventorySyncTail = Promise.resolve();
+const queueSemaphoreInventorySync = (options) => {
+  const queued = semaphoreInventorySyncTail.then(
+    () => syncSemaphoreInventory(options),
+    () => syncSemaphoreInventory(options),
+  );
+  semaphoreInventorySyncTail = queued.catch(() => undefined);
+  return queued;
+};
+
 const importRemoteSemaphoreInventory = async (expectedRemoteHash = '') => {
   const profile = getSemaphoreProfileRow();
   if (!profile) throw new Error('Semaphore profile is not configured');
@@ -1378,14 +1391,23 @@ const importRemoteSemaphoreInventory = async (expectedRemoteHash = '') => {
   };
 };
 
-const syncAfterCatalogChange = async () => {
+const syncAfterCatalogChange = async (previousInventory = null) => {
   const profile = getSemaphoreProfileRow();
+  if (previousInventory != null && normalizeInventoryContent(previousInventory) === normalizeInventoryContent(generateManagedInventory())) {
+    return { ...mapSemaphoreProfileRow(profile), catalogSyncResult: 'unchanged' };
+  }
   if (!profile || profile.inventory_sync_state === 'uninitialized' || profile.inventory_sync_state === 'conflict') {
-    return mapSemaphoreProfileRow(profile);
+    return { ...mapSemaphoreProfileRow(profile), catalogSyncResult: 'pending' };
   }
   setInventorySyncState(profile.id, 'pending');
-  try { await syncSemaphoreInventory(); } catch { /* The catalog write remains authoritative. */ }
-  return mapSemaphoreProfileRow(getSemaphoreProfileRow());
+  try {
+    const result = await queueSemaphoreInventorySync();
+    return { ...mapSemaphoreProfileRow(getSemaphoreProfileRow()), catalogSyncResult: result.ok ? 'synced' : 'pending' };
+  } catch (error) {
+    // The complete local inventory remains authoritative and will be published on retry.
+    setInventorySyncState(profile.id, 'pending', clampText(`Automatic synchronization failed: ${error?.message || 'Semaphore is unavailable'}`, 500));
+    return { ...mapSemaphoreProfileRow(getSemaphoreProfileRow()), catalogSyncResult: 'pending' };
+  }
 };
 
 const replaceServerMemberships = (serverId, rawGroupIds) => {
@@ -2518,7 +2540,7 @@ app.post('/api/semaphore/profile/:profileId/inventory-adopt', async (req, res) =
   const expectedRemoteHash = clampText(req.body?.expectedRemoteHash, 64);
   if (!/^[a-f0-9]{64}$/.test(expectedRemoteHash)) return res.status(400).json({ error: 'Reload the inventory preview before choosing a source' });
   try {
-    const result = await syncSemaphoreInventory({ force: true, expectedRemoteHash });
+    const result = await queueSemaphoreInventorySync({ force: true, expectedRemoteHash });
     res.json({ ok: true, result, profile: mapSemaphoreProfileRow(getSemaphoreProfileRow()) });
   } catch (error) {
     res.status(error?.code === 'INVENTORY_CHANGED' ? 409 : 502).json({ error: error?.message || 'Inventory publish failed', code: error?.code });
@@ -2550,7 +2572,7 @@ app.post('/api/semaphore/profile/:profileId/inventory-sync', async (req, res) =>
   const profile = getSemaphoreProfileRow();
   if (!profile || profile.id !== Number(req.params.profileId)) return res.status(404).json({ error: 'Semaphore profile not found' });
   try {
-    const result = await syncSemaphoreInventory();
+    const result = await queueSemaphoreInventorySync();
     if (!result.ok) return res.status(409).json({ error: result.state === 'conflict' ? 'Semaphore inventory has changed outside Rakit' : 'Choose the inventory source before the first synchronization', code: result.state.toUpperCase(), ...result });
     res.json({ ok: true, result, profile: mapSemaphoreProfileRow(getSemaphoreProfileRow()) });
   } catch (error) {
@@ -2564,12 +2586,13 @@ app.post('/api/server-groups', async (req, res) => {
   const name = clampText(req.body?.name, 120);
   const ansibleName = clampText(req.body?.ansibleName, 63).toLowerCase();
   if (!name || !ANSIBLE_NAME_RE.test(ansibleName)) return res.status(400).json({ error: 'Name and valid Ansible group name are required' });
+  const previousInventory = generateManagedInventory();
   try {
     const info = db.prepare('INSERT INTO server_groups(name, ansible_name, description, color) VALUES (?, ?, ?, ?)').run(
       name, ansibleName, clampText(req.body?.description, 300) || null, clampText(req.body?.color, 30) || null,
     );
     recordAudit({ action: 'Server group created', objectType: 'server_group', objectId: info.lastInsertRowid, details: name });
-    const sync = await syncAfterCatalogChange();
+    const sync = await syncAfterCatalogChange(previousInventory);
     res.status(201).json({ ok: true, group: listServerGroups().find((group) => group.id === Number(info.lastInsertRowid)), inventory: sync });
   } catch (error) {
     res.status(/UNIQUE/i.test(error?.message || '') ? 409 : 400).json({ error: /UNIQUE/i.test(error?.message || '') ? 'Ansible group name already exists' : error?.message || 'Could not create group' });
@@ -2596,11 +2619,12 @@ app.patch('/api/server-groups/:groupId', async (req, res) => {
   if ('description' in req.body) assign('description', clampText(req.body.description, 300) || null);
   if ('color' in req.body) assign('color', clampText(req.body.color, 30) || null);
   if (!sets.length) return res.status(400).json({ error: 'Nothing to update' });
+  const previousInventory = generateManagedInventory();
   try {
     values.push(groupId);
     db.prepare(`UPDATE server_groups SET ${sets.join(', ')} WHERE id=?`).run(...values);
     recordAudit({ action: 'Server group updated', objectType: 'server_group', objectId: groupId, details: current.name });
-    const sync = await syncAfterCatalogChange();
+    const sync = await syncAfterCatalogChange(previousInventory);
     res.json({ ok: true, group: listServerGroups().find((group) => group.id === groupId), inventory: sync });
   } catch (error) {
     res.status(/UNIQUE/i.test(error?.message || '') ? 409 : 400).json({ error: error?.message || 'Could not update group' });
@@ -2611,9 +2635,10 @@ app.delete('/api/server-groups/:groupId', async (req, res) => {
   const groupId = Number(req.params.groupId);
   const current = db.prepare('SELECT * FROM server_groups WHERE id=?').get(groupId);
   if (!current) return res.status(404).json({ error: 'Server group not found' });
+  const previousInventory = generateManagedInventory();
   db.prepare('DELETE FROM server_groups WHERE id=?').run(groupId);
   recordAudit({ action: 'Server group removed', objectType: 'server_group', objectId: groupId, details: current.name });
-  const sync = await syncAfterCatalogChange();
+  const sync = await syncAfterCatalogChange(previousInventory);
   res.json({ ok: true, inventory: sync });
 });
 
@@ -2633,19 +2658,22 @@ app.post('/api/servers', async (req, res) => {
   const alias = clampText(req.body?.ansibleAlias, 63).toLowerCase();
   const primaryIp = normalizeManagedAddress(req.body?.primaryIp);
   const sshPort = Number(req.body?.sshPort ?? 22);
+  const sshUser = clampText(req.body?.sshUser, 64);
   if (!name || !ANSIBLE_NAME_RE.test(alias) || !primaryIp) return res.status(400).json({ error: 'Name, valid Ansible alias and IP/hostname are required' });
   if (!Number.isInteger(sshPort) || sshPort < 1 || sshPort > 65535) return res.status(400).json({ error: 'SSH port must be between 1 and 65535' });
+  if (sshUser && !/^[A-Za-z_][A-Za-z0-9_.-]{0,63}$/.test(sshUser)) return res.status(400).json({ error: 'SSH user contains unsupported characters' });
   const cockpitUrl = req.body?.cockpitUrl ? normalizeExternalUrl(req.body.cockpitUrl) : '';
   if (req.body?.cockpitUrl && !cockpitUrl) return res.status(400).json({ error: 'Cockpit URL is invalid' });
   const linkedDeviceId = req.body?.linkedDeviceId == null || req.body.linkedDeviceId === '' ? null : Number(req.body.linkedDeviceId);
   if (linkedDeviceId != null && !db.prepare('SELECT id FROM cabinet_devices WHERE id=?').get(linkedDeviceId)) return res.status(400).json({ error: 'Linked rack device does not exist' });
+  const previousInventory = generateManagedInventory();
   try {
     const info = db.prepare(`
-      INSERT INTO servers(name, ansible_alias, hostname, primary_ip, ssh_port, os_family, os_name, os_version,
+      INSERT INTO servers(name, ansible_alias, hostname, primary_ip, ssh_user, ssh_port, os_family, os_name, os_version,
         environment, role, location, cockpit_url, notes, linked_device_id, ansible_enabled, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
-      name, alias, clampText(req.body?.hostname, 255) || null, primaryIp, sshPort,
+      name, alias, clampText(req.body?.hostname, 255) || null, primaryIp, sshUser || null, sshPort,
       clampText(req.body?.osFamily, 40) || 'linux', clampText(req.body?.osName, 80) || null,
       clampText(req.body?.osVersion, 80) || null, clampText(req.body?.environment, 80) || null,
       clampText(req.body?.role, 120) || null, clampText(req.body?.location, 120) || null,
@@ -2654,7 +2682,7 @@ app.post('/api/servers', async (req, res) => {
     );
     replaceServerMemberships(Number(info.lastInsertRowid), req.body?.groupIds);
     recordAudit({ action: 'Server created', objectType: 'server', objectId: info.lastInsertRowid, details: `${name} · ${primaryIp}` });
-    const sync = await syncAfterCatalogChange();
+    const sync = await syncAfterCatalogChange(previousInventory);
     const serverId = Number(info.lastInsertRowid);
     await refreshServerNetworkStatus([serverId]).catch((error) => console.warn(`[Network] Could not probe server ${serverId}:`, error?.message || error));
     res.status(201).json({ ok: true, server: getServer(serverId), inventory: sync });
@@ -2691,6 +2719,11 @@ app.patch('/api/servers/:serverId', async (req, res) => {
     if (!Number.isInteger(value) || value < 1 || value > 65535) return res.status(400).json({ error: 'SSH port must be between 1 and 65535' });
     assign('ssh_port', value);
   }
+  if ('sshUser' in req.body) {
+    const value = clampText(req.body.sshUser, 64);
+    if (value && !/^[A-Za-z_][A-Za-z0-9_.-]{0,63}$/.test(value)) return res.status(400).json({ error: 'SSH user contains unsupported characters' });
+    assign('ssh_user', value || null);
+  }
   for (const [input, column, limit] of [
     ['hostname', 'hostname', 255], ['osFamily', 'os_family', 40], ['osName', 'os_name', 80],
     ['osVersion', 'os_version', 80], ['environment', 'environment', 80], ['role', 'role', 120],
@@ -2713,6 +2746,7 @@ app.patch('/api/servers/:serverId', async (req, res) => {
   }
   if (!sets.length && !('groupIds' in req.body)) return res.status(400).json({ error: 'Nothing to update' });
   const networkTargetChanged = sets.some((set) => set.startsWith('primary_ip=') || set.startsWith('ssh_port='));
+  const previousInventory = generateManagedInventory();
   try {
     const update = db.transaction(() => {
       if (sets.length) {
@@ -2727,7 +2761,7 @@ app.patch('/api/servers/:serverId', async (req, res) => {
       await refreshServerNetworkStatus([serverId]).catch((error) => console.warn(`[Network] Could not probe server ${serverId}:`, error?.message || error));
     }
     recordAudit({ action: 'Server updated', objectType: 'server', objectId: serverId, details: current.name });
-    const sync = await syncAfterCatalogChange();
+    const sync = await syncAfterCatalogChange(previousInventory);
     res.json({ ok: true, server: getServer(serverId), inventory: sync });
   } catch (error) {
     res.status(/UNIQUE/i.test(error?.message || '') ? 409 : 400).json({ error: error?.message || 'Could not update server' });
@@ -2739,9 +2773,10 @@ app.delete('/api/servers/:serverId', async (req, res) => {
   const current = getServer(serverId);
   if (!current) return res.status(404).json({ error: 'Server not found' });
   if (req.body?.confirmation !== current.ansibleAlias) return res.status(400).json({ error: 'Type the Ansible alias to confirm removal' });
+  const previousInventory = generateManagedInventory();
   db.prepare('DELETE FROM servers WHERE id=?').run(serverId);
   recordAudit({ action: 'Server removed', objectType: 'server', objectId: serverId, details: `${current.name} · ${current.ansibleAlias}` });
-  const sync = await syncAfterCatalogChange();
+  const sync = await syncAfterCatalogChange(previousInventory);
   res.json({ ok: true, inventory: sync });
 });
 

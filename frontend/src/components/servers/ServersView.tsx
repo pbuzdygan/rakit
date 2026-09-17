@@ -15,7 +15,7 @@ type SemaphoreProfile = {
   inventorySyncError: string; inventoryLastSyncedAt: string | null;
 };
 type Server = {
-  id: number; name: string; ansibleAlias: string; hostname: string; primaryIp: string; sshPort: number;
+  id: number; name: string; ansibleAlias: string; hostname: string; primaryIp: string; sshUser: string; sshPort: number;
   osFamily: string; osName: string; osVersion: string; environment: string; role: string; location: string;
   cockpitUrl: string; notes: string; linkedDeviceId: number | null; linkedDeviceLabel: string;
   ansibleEnabled: boolean; inventorySyncState: 'disabled' | 'synced' | 'pending'; status: string; groups: ServerGroup[]; updates: number | null;
@@ -27,7 +27,7 @@ type Server = {
 type ServerAction = { id: number; action: string; status: string; semaphoreTaskId: number | null; requestedAt: string; resultSummary: string; errorMessage: string; source: 'rakit' | 'schedule' };
 
 const emptyServerForm = {
-  name: '', ansibleAlias: '', primaryIp: '', hostname: '', sshPort: '22', osName: 'Ubuntu Server', osVersion: '',
+  name: '', ansibleAlias: '', primaryIp: '', hostname: '', sshUser: '', sshPort: '22', osName: 'Ubuntu Server', osVersion: '',
   environment: '', role: '', location: '', cockpitUrl: '', notes: '', linkedDeviceId: '', groupIds: [] as number[],
   ansibleEnabled: true, status: 'unknown',
 };
@@ -45,6 +45,7 @@ export function ServersView() {
   const [filter, setFilter] = useState('');
   const [groupFilter, setGroupFilter] = useState('all');
   const [updateFilter, setUpdateFilter] = useState('all');
+  const [sort, setSort] = useState<{ key: ServerSortKey; direction: SortDirection }>({ key: 'server', direction: 'asc' });
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [serverModal, setServerModal] = useState<{ open: boolean; server: Server | null }>({ open: false, server: null });
   const [profileOpen, setProfileOpen] = useState(false);
@@ -52,6 +53,7 @@ export function ServersView() {
   const [inventoryOpen, setInventoryOpen] = useState(false);
   const [confirmAction, setConfirmAction] = useState<'update' | 'reboot' | 'remove' | null>(null);
   const [activeActionId, setActiveActionId] = useState<number | null>(null);
+  const [syncConfirmationAt, setSyncConfirmationAt] = useState(0);
   const [error, setError] = useState('');
   const data = serversQuery.data ?? {};
   const servers = (data.servers ?? []) as Server[];
@@ -70,7 +72,7 @@ export function ServersView() {
 
   const visible = useMemo(() => {
     const query = filter.trim().toLowerCase();
-    return servers.filter((server) => {
+    const filtered = servers.filter((server) => {
       const matchesText = !query || [server.name, server.ansibleAlias, server.primaryIp, server.hostname, server.environment, server.role, ...server.groups.map((group) => group.name)].some((value) => value.toLowerCase().includes(query));
       const matchesGroup = groupFilter === 'all' || server.groups.some((group) => String(group.id) === groupFilter);
       const matchesUpdates = updateFilter === 'all'
@@ -80,7 +82,27 @@ export function ServersView() {
         || (updateFilter === 'clean' && server.updates === 0);
       return matchesText && matchesGroup && matchesUpdates;
     });
-  }, [servers, filter, groupFilter, updateFilter]);
+    return filtered.map((server, index) => ({ server, index })).sort((left, right) => {
+      const comparison = compareServers(left.server, right.server, sort.key, sort.direction);
+      return comparison || left.index - right.index;
+    }).map(({ server }) => server);
+  }, [servers, filter, groupFilter, updateFilter, sort]);
+
+  const changeSort = (key: ServerSortKey) => {
+    setSort((current) => current.key === key
+      ? { key, direction: current.direction === 'asc' ? 'desc' : 'asc' }
+      : { key, direction: defaultSortDirection(key) });
+  };
+
+  const showInventoryResult = (inventory?: SemaphoreProfile & { catalogSyncResult?: string }) => {
+    if (inventory?.catalogSyncResult === 'synced') setSyncConfirmationAt(Date.now());
+  };
+
+  useEffect(() => {
+    if (!syncConfirmationAt) return;
+    const timer = window.setTimeout(() => setSyncConfirmationAt(0), 6000);
+    return () => window.clearTimeout(timer);
+  }, [syncConfirmationAt]);
 
   const refreshAll = async () => {
     await Promise.all([
@@ -93,7 +115,7 @@ export function ServersView() {
 
   const syncMutation = useMutation({
     mutationFn: () => Api.semaphore.syncInventory(profile!.id),
-    onSuccess: () => { setError(''); void refreshAll(); },
+    onSuccess: () => { setSyncConfirmationAt(Date.now()); setError(''); void refreshAll(); },
     onError: (reason: Error) => { setError(readApiError(reason)); void refreshAll(); },
   });
   const actionMutation = useMutation({
@@ -142,7 +164,7 @@ export function ServersView() {
           <div className="ops-servers-summary-actions">
             <button className="ops-button ops-button--secondary" onClick={() => setGroupsOpen(true)}>Groups</button>
             <button className="ops-button ops-button--secondary" onClick={() => setProfileOpen(true)}><OperationsIcon name="settings" /> Semaphore</button>
-            {profile ? <button className="ops-button ops-button--secondary" disabled={syncMutation.isPending} onClick={() => profile.inventorySyncState === 'uninitialized' || profile.inventorySyncState === 'conflict' ? setInventoryOpen(true) : syncMutation.mutate()}><OperationsIcon name="refresh" /> {syncMutation.isPending ? 'Syncing…' : 'Sync inventory'}</button> : null}
+            {profile ? <button className={`ops-button ops-button--secondary ${syncConfirmationAt ? 'ops-sync-button--confirmed' : profile.inventorySyncState === 'synced' ? '' : 'ops-sync-button--required'}`} disabled={syncMutation.isPending || Boolean(syncConfirmationAt)} title={syncConfirmationAt ? 'The latest inventory changes were published successfully' : inventorySyncButtonTitle(profile.inventorySyncState)} onClick={() => profile.inventorySyncState === 'uninitialized' || profile.inventorySyncState === 'conflict' ? setInventoryOpen(true) : syncMutation.mutate()}><OperationsIcon name={syncConfirmationAt ? 'check' : 'refresh'} /> {syncMutation.isPending ? 'Syncing…' : syncConfirmationAt ? 'Inventory synchronized' : profile.inventorySyncState === 'synced' ? 'Sync inventory' : profile.inventorySyncState === 'failed' ? 'Retry inventory sync' : 'Sync required'}</button> : null}
             <button className="ops-button" onClick={() => setServerModal({ open: true, server: null })}><OperationsIcon name="plus" /> Add server</button>
           </div>
         </div>
@@ -156,7 +178,7 @@ export function ServersView() {
         {error ? <div className="ops-error-banner">{error}<button onClick={() => setError('')}><OperationsIcon name="close" /></button></div> : null}
         <div className="ops-table-wrap">
           <table className="ops-table ops-servers-table">
-            <thead><tr><th>Server</th><th className="ops-server-sync-heading" title="Semaphore inventory status">Sync</th><th>Network</th><th>Health</th><th>Groups</th><th>Updates</th><th>Security</th><th>Reboot</th><th>Last update</th><th>Last health</th><th /></tr></thead>
+            <thead><tr><SortableHeader label="Server" sortKey="server" sort={sort} onSort={changeSort} /><th className="ops-server-sync-heading" title="Semaphore inventory status">Sync</th><th>Network</th><SortableHeader label="Health" sortKey="health" sort={sort} onSort={changeSort} /><th>Groups</th><SortableHeader label="Updates" sortKey="updates" sort={sort} onSort={changeSort} /><SortableHeader label="Security" sortKey="security" sort={sort} onSort={changeSort} /><SortableHeader label="Reboot" sortKey="reboot" sort={sort} onSort={changeSort} /><SortableHeader label="Last update" sortKey="lastUpdate" sort={sort} onSort={changeSort} /><SortableHeader label="Last health" sortKey="lastHealth" sort={sort} onSort={changeSort} /><th /></tr></thead>
             <tbody>{visible.map((server) => (
               <tr key={server.id} className={selectedId === server.id ? 'is-selected' : ''} onClick={() => setSelectedId(server.id)}>
                 <td data-label="Server"><div className="ops-cell-device"><span><OperationsIcon name="server" /></span><div><strong>{server.name}</strong><small><span className="ops-mono">{server.primaryIp}</span>{server.role ? ` · ${server.role}` : ''}</small></div></div></td>
@@ -168,7 +190,7 @@ export function ServersView() {
                 <td data-label="Security"><UpdateCount value={server.securityUpdates} tone={server.securityUpdates ? 'danger' : 'neutral'} /></td>
                 <td data-label="Reboot">{server.rebootRequired == null ? <span className="ops-muted">—</span> : <span className={`ops-state ops-state--${server.rebootRequired ? 'warning' : 'neutral'}`}>{server.rebootRequired ? 'Required' : 'No'}</span>}</td>
                 <td data-label="Last update"><LastUpdate server={server} timeZone={timeZone} /></td>
-                <td data-label="Last health" className="ops-muted" title={server.lastHealthAt ? formatDateTime(server.lastHealthAt, timeZone) : undefined}>{server.lastHealthAt ? formatRelativeTime(server.lastHealthAt) : 'Never'}</td>
+                <td data-label="Last health"><LastEvent at={server.lastHealthAt} timeZone={timeZone} icon="activity" /></td>
                 <td aria-hidden="true"><OperationsIcon name="chevron" /></td>
               </tr>
             ))}</tbody>
@@ -179,15 +201,15 @@ export function ServersView() {
 
       {selected ? <ServerInspector server={selected} profile={profile} actions={actions} busy={actionMutation.isPending || Boolean(activeActionId)} timeZone={timeZone} onClose={() => setSelectedId(null)} onEdit={() => setServerModal({ open: true, server: selected })} onCheck={() => actionMutation.mutate({ server: selected, action: 'check' })} onHealth={() => actionMutation.mutate({ server: selected, action: 'health' })} onConfirm={setConfirmAction} /> : null}
 
-      <ServerModal open={serverModal.open} server={serverModal.server} groups={groups} devices={devices} onClose={() => setServerModal({ open: false, server: null })} onSaved={async (id) => { setServerModal({ open: false, server: null }); setSelectedId(id); await refreshAll(); }} onError={setError} />
+      <ServerModal open={serverModal.open} server={serverModal.server} groups={groups} devices={devices} onClose={() => setServerModal({ open: false, server: null })} onSaved={async (result) => { showInventoryResult(result.inventory); setServerModal({ open: false, server: null }); setSelectedId(result.server.id); await refreshAll(); }} onError={setError} />
       <SemaphoreModal open={profileOpen} profile={profile} onClose={() => setProfileOpen(false)} onSaved={async () => { setProfileOpen(false); await refreshAll(); }} onError={setError} />
-      <GroupsModal open={groupsOpen} groups={groups} onClose={() => setGroupsOpen(false)} onChanged={refreshAll} onError={setError} />
-      <InventoryModal open={inventoryOpen} profile={profile} onClose={() => setInventoryOpen(false)} onPublished={async () => { setInventoryOpen(false); await refreshAll(); }} />
+      <GroupsModal open={groupsOpen} groups={groups} onClose={() => setGroupsOpen(false)} onChanged={async (inventory) => { showInventoryResult(inventory); await refreshAll(); }} onError={setError} />
+      <InventoryModal open={inventoryOpen} profile={profile} onClose={() => setInventoryOpen(false)} onPublished={async () => { setSyncConfirmationAt(Date.now()); setInventoryOpen(false); await refreshAll(); }} />
       <ConfirmServerAction open={Boolean(confirmAction && selected)} action={confirmAction} server={selected} busy={actionMutation.isPending} onClose={() => setConfirmAction(null)} onConfirm={(confirmation) => {
         if (!selected || !confirmAction) return;
         if (confirmAction === 'remove') return;
         actionMutation.mutate({ server: selected, action: confirmAction, confirmation });
-      }} onRemoved={async () => { setConfirmAction(null); setSelectedId(null); await refreshAll(); }} onError={setError} />
+      }} onRemoved={async (inventory) => { showInventoryResult(inventory); setConfirmAction(null); setSelectedId(null); await refreshAll(); }} onError={setError} />
     </div>
   );
 }
@@ -198,13 +220,21 @@ function InventoryState({ profile }: { profile: SemaphoreProfile | null }) {
   return <span className={`ops-inventory-state is-${profile.inventorySyncState}`} title={profile.inventorySyncError || undefined}><span />{labels[profile.inventorySyncState]}</span>;
 }
 
+type ServerSortKey = 'server' | 'health' | 'updates' | 'security' | 'reboot' | 'lastUpdate' | 'lastHealth';
+type SortDirection = 'asc' | 'desc';
+
+function SortableHeader({ label, sortKey, sort, onSort }: { label: string; sortKey: ServerSortKey; sort: { key: ServerSortKey; direction: SortDirection }; onSort: (key: ServerSortKey) => void }) {
+  const active = sort.key === sortKey;
+  return <th aria-sort={active ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}><button type="button" className={`ops-sort-button ${active ? 'is-active' : ''}`} onClick={() => onSort(sortKey)}><span>{label}</span><span className="ops-sort-indicator" aria-hidden="true">{active ? sort.direction === 'asc' ? '↑' : '↓' : '↕'}</span></button></th>;
+}
+
 function ServerState({ server }: { server: Server }) {
   const tone = server.status === 'online' ? 'ok' : server.status === 'offline' || server.status === 'error' ? 'danger' : server.status === 'maintenance' ? 'warning' : 'neutral';
   const label = server.status === 'online' ? 'Healthy'
     : server.status === 'offline' ? 'Unhealthy'
       : server.status === 'unknown' ? server.ansibleEnabled ? 'Not checked' : 'Not managed'
         : server.status;
-  return <span className={`ops-state ops-state--${tone}`} title="Health status from Rakit/Semaphore automation"><span className="ops-status-dot" />{label}</span>;
+  return <span className={`ops-state ops-server-signal ops-state--${tone}`} title="Health status from Rakit/Semaphore automation"><span className="ops-status-dot" />{label}</span>;
 }
 
 function ServerNetworkState({ server, timeZone }: { server: Server; timeZone: string }) {
@@ -214,7 +244,7 @@ function ServerNetworkState({ server, timeZone }: { server: Server; timeZone: st
   const checked = server.networkCheckedAt ? formatDateTime(server.networkCheckedAt, timeZone) : 'not checked yet';
   const latency = server.networkLatencyMs == null ? '' : ` · ${server.networkLatencyMs} ms`;
   const detail = server.networkDetail ? ` · ${server.networkDetail}` : '';
-  return <span className={`ops-state ops-state--${tone}`} title={`${server.primaryIp} · ${checked}${latency}${detail}`}><span className="ops-status-dot" />{label}</span>;
+  return <span className={`ops-state ops-server-signal ops-state--${tone}`} title={`${server.primaryIp} · ${checked}${latency}${detail}`}><span className="ops-status-dot" />{label}</span>;
 }
 
 function ServerInventoryState({ server }: { server: Server }) {
@@ -227,9 +257,13 @@ function ServerInventoryState({ server }: { server: Server }) {
 }
 
 function LastUpdate({ server, timeZone }: { server: Server; timeZone: string }) {
-  if (!server.lastUpdateAt) return <span className="ops-muted">Never</span>;
   const successful = server.lastUpdateResult === 'success';
-  return <span className={`ops-last-update ${successful ? 'is-success' : 'is-failed'}`} title={`${successful ? 'Successful' : 'Failed'} · ${formatDateTime(server.lastUpdateAt, timeZone)}`}><OperationsIcon name={successful ? 'check' : 'close'} /><span>{formatRelativeTime(server.lastUpdateAt)}</span></span>;
+  return <LastEvent at={server.lastUpdateAt} timeZone={timeZone} icon={server.lastUpdateAt ? successful ? 'check' : 'close' : 'activity'} tone={server.lastUpdateAt ? successful ? 'success' : 'failed' : undefined} titlePrefix={server.lastUpdateAt ? successful ? 'Successful' : 'Failed' : undefined} />;
+}
+
+function LastEvent({ at, timeZone, icon, tone, titlePrefix }: { at: string | null; timeZone: string; icon: 'activity' | 'check' | 'close'; tone?: 'success' | 'failed'; titlePrefix?: string }) {
+  const title = at ? `${titlePrefix ? `${titlePrefix} · ` : ''}${formatDateTime(at, timeZone)}` : 'Never recorded';
+  return <span className={`ops-last-event ${tone ? `is-${tone}` : ''}`} title={title}><OperationsIcon name={icon} /><span>{at ? formatRelativeTime(at) : 'Never'}</span></span>;
 }
 
 function UpdateCount({ value, tone }: { value: number | null; tone: string }) {
@@ -239,13 +273,15 @@ function UpdateCount({ value, tone }: { value: number | null; tone: string }) {
 
 function ServerInspector({ server, profile, actions, busy, timeZone, onClose, onEdit, onCheck, onHealth, onConfirm }: { server: Server; profile: SemaphoreProfile | null; actions: ServerAction[]; busy: boolean; timeZone: string; onClose: () => void; onEdit: () => void; onCheck: () => void; onHealth: () => void; onConfirm: (action: 'update' | 'reboot' | 'remove') => void }) {
   const latestAction = actions[0];
+  const sshHost = server.primaryIp.includes(':') ? `[${server.primaryIp}]` : server.primaryIp;
+  const sshHref = `ssh://${server.sshUser ? `${encodeURIComponent(server.sshUser)}@` : ''}${sshHost}:${server.sshPort}`;
   return <aside className="ops-inspector ops-server-inspector">
     <div className="ops-inspector-header"><div><span className="ops-eyebrow">Server details</span><h2>{server.name}</h2><p className="ops-mono">{server.ansibleAlias} · {server.primaryIp}:{server.sshPort}</p></div><button className="ops-icon-button" onClick={onClose}><OperationsIcon name="close" /></button></div>
     <div className="ops-inspector-body">
       <div className="ops-server-hero"><div className="ops-server-hero-signals"><ServerNetworkState server={server} timeZone={timeZone} /><ServerState server={server} /></div><span>{server.osName || server.osFamily}{server.osVersion ? ` ${server.osVersion}` : ''}</span></div>
       <section className="ops-server-update-card"><div><span className="ops-eyebrow">Updates</span><strong>{server.updates == null ? 'Not checked' : `${server.updates} available`}</strong><p>{server.securityUpdates == null ? 'Run a check to collect package status.' : `${server.securityUpdates} security · ${server.rebootRequired ? 'reboot required' : 'no reboot required'}`}</p></div><button className="ops-button ops-button--secondary" disabled={busy || !profile || profile.inventorySyncState !== 'synced'} onClick={onCheck}><OperationsIcon name="refresh" /> {busy ? 'Working…' : 'Check now'}</button></section>
       {latestAction ? <section className="ops-server-section"><span className="ops-eyebrow">Latest automation</span><div className="ops-server-action-row"><span className={`ops-state ops-state--${latestAction.status === 'success' ? 'ok' : latestAction.status === 'failed' ? 'danger' : 'info'}`}>{latestAction.status}</span><div><strong>{humanAction(latestAction.action)}{latestAction.source === 'schedule' ? ' · schedule' : ''}</strong><small>{latestAction.resultSummary || latestAction.errorMessage || formatDateTime(latestAction.requestedAt, timeZone)}</small></div></div></section> : null}
-      <section className="ops-server-section"><span className="ops-eyebrow">Management</span><div className="ops-server-link-grid"><button className="ops-button ops-button--secondary" disabled={busy || !profile?.healthTemplateId || profile.inventorySyncState !== 'synced'} onClick={onHealth}><OperationsIcon name="activity" /> Health</button>{server.cockpitUrl ? <a className="ops-button ops-button--secondary" href={server.cockpitUrl} target="_blank" rel="noreferrer">Cockpit <OperationsIcon name="link" /></a> : null}{profile ? <a className="ops-button ops-button--secondary" href={profile.uiUrl} target="_blank" rel="noreferrer">Semaphore <OperationsIcon name="link" /></a> : null}<a className="ops-button ops-button--secondary" href={`ssh://${server.primaryIp}:${server.sshPort}`}>SSH <OperationsIcon name="link" /></a></div></section>
+      <section className="ops-server-section"><span className="ops-eyebrow">Management</span><div className="ops-server-link-grid"><button className="ops-button ops-button--secondary" disabled={busy || !profile?.healthTemplateId || profile.inventorySyncState !== 'synced'} onClick={onHealth}><OperationsIcon name="activity" /> Health</button>{server.cockpitUrl ? <a className="ops-button ops-button--secondary" href={server.cockpitUrl} target="_blank" rel="noreferrer">Cockpit <OperationsIcon name="link" /></a> : null}{profile ? <a className="ops-button ops-button--secondary" href={profile.uiUrl} target="_blank" rel="noreferrer">Semaphore <OperationsIcon name="link" /></a> : null}<a className="ops-button ops-button--secondary" href={sshHref} title={server.sshUser ? `Connect as ${server.sshUser}` : 'No SSH user configured; the local default will be used'}>SSH{server.sshUser ? ` · ${server.sshUser}` : ''} <OperationsIcon name="link" /></a></div></section>
       <section className="ops-server-section ops-server-facts"><span className="ops-eyebrow">Details</span><dl><div><dt>Environment</dt><dd>{server.environment || '—'}</dd></div><div><dt>Role</dt><dd>{server.role || '—'}</dd></div><div><dt>Location</dt><dd>{server.location || '—'}</dd></div><div><dt>Rack device</dt><dd>{server.linkedDeviceLabel || 'Not linked'}</dd></div><div><dt>Network probe</dt><dd>{server.networkCheckedAt ? `${formatDateTime(server.networkCheckedAt, timeZone)}${server.networkLatencyMs == null ? '' : ` · ${server.networkLatencyMs} ms`}` : 'Waiting for first check'}</dd></div><div><dt>Last package update</dt><dd>{server.lastUpdateAt ? `${server.lastUpdateResult} · ${formatDateTime(server.lastUpdateAt, timeZone)}` : 'Never'}</dd></div><div><dt>Last health check</dt><dd>{formatDateTime(server.lastHealthAt, timeZone, 'Never')}</dd></div><div><dt>Kernel</dt><dd className="ops-mono">{server.kernel || '—'}</dd></div></dl></section>
       {server.notes ? <section className="ops-server-section"><span className="ops-eyebrow">Notes</span><p>{server.notes}</p></section> : null}
     </div>
@@ -253,7 +289,7 @@ function ServerInspector({ server, profile, actions, busy, timeZone, onClose, on
   </aside>;
 }
 
-function ServerModal({ open, server, groups, devices, onClose, onSaved, onError }: { open: boolean; server: Server | null; groups: ServerGroup[]; devices: any[]; onClose: () => void; onSaved: (id: number) => void; onError: (message: string) => void }) {
+function ServerModal({ open, server, groups, devices, onClose, onSaved, onError }: { open: boolean; server: Server | null; groups: ServerGroup[]; devices: any[]; onClose: () => void; onSaved: (result: any) => void; onError: (message: string) => void }) {
   const [form, setForm] = useState(emptyServerForm);
   useEffect(() => { if (open) setForm(server ? serverToForm(server) : emptyServerForm); }, [open, server?.id]);
   const mutation = useMutation({
@@ -262,7 +298,7 @@ function ServerModal({ open, server, groups, devices, onClose, onSaved, onError 
       if (server && form.ansibleAlias !== server.ansibleAlias) payload.confirmAliasChange = server.ansibleAlias;
       return server ? Api.servers.update(server.id, payload) : Api.servers.create(payload);
     },
-    onSuccess: (result) => onSaved(result.server.id),
+    onSuccess: onSaved,
     onError: (reason: Error) => onError(readApiError(reason)),
   });
   const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => setForm((current) => ({ ...current, [key]: value }));
@@ -271,6 +307,7 @@ function ServerModal({ open, server, groups, devices, onClose, onSaved, onError 
       <label className="ops-field"><span>Display name</span><input value={form.name} onChange={(event) => set('name', event.target.value)} placeholder="BUZHULK" /></label>
       <label className="ops-field"><span>Ansible alias</span><input className="ops-mono" value={form.ansibleAlias} onChange={(event) => set('ansibleAlias', event.target.value.toLowerCase())} placeholder="buzhulk" /><small>Stable technical identifier used by --limit.</small></label>
       <label className="ops-field"><span>Management IP / DNS</span><input className="ops-mono" value={form.primaryIp} onChange={(event) => set('primaryIp', event.target.value)} /></label>
+      <label className="ops-field"><span>SSH user</span><input className="ops-mono" value={form.sshUser} onChange={(event) => set('sshUser', event.target.value)} placeholder="Optional, e.g. deploy" /><small>Used by the SSH shortcut. Empty keeps the operating system default.</small></label>
       <label className="ops-field"><span>SSH port</span><input type="number" min="1" max="65535" value={form.sshPort} onChange={(event) => set('sshPort', event.target.value)} /></label>
       <label className="ops-field"><span>Hostname</span><input value={form.hostname} onChange={(event) => set('hostname', event.target.value)} /></label>
       <label className="ops-field"><span>Cockpit URL</span><input value={form.cockpitUrl} onChange={(event) => set('cockpitUrl', event.target.value)} placeholder="https://server.example:9090" /></label>
@@ -336,11 +373,11 @@ function TemplateSelect({ label, value, templates, onChange }: { label: string; 
   return <label className="ops-field"><span>{label}</span>{templates.length ? <select value={value} onChange={(event) => onChange(event.target.value)}><option value="">Not configured</option>{templates.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select> : <input type="number" min="1" value={value} onChange={(event) => onChange(event.target.value)} placeholder="Optional" />}</label>;
 }
 
-function GroupsModal({ open, groups, onClose, onChanged, onError }: { open: boolean; groups: ServerGroup[]; onClose: () => void; onChanged: () => void; onError: (message: string) => void }) {
+function GroupsModal({ open, groups, onClose, onChanged, onError }: { open: boolean; groups: ServerGroup[]; onClose: () => void; onChanged: (inventory?: SemaphoreProfile & { catalogSyncResult?: string }) => void; onError: (message: string) => void }) {
   const [name, setName] = useState('');
   const [ansibleName, setAnsibleName] = useState('');
-  const mutation = useMutation({ mutationFn: () => Api.serverGroups.create({ name, ansibleName }), onSuccess: async () => { setName(''); setAnsibleName(''); await onChanged(); }, onError: (reason: Error) => onError(readApiError(reason)) });
-  const remove = useMutation({ mutationFn: (id: number) => Api.serverGroups.remove(id), onSuccess: onChanged, onError: (reason: Error) => onError(readApiError(reason)) });
+  const mutation = useMutation({ mutationFn: () => Api.serverGroups.create({ name, ansibleName }), onSuccess: async (result) => { setName(''); setAnsibleName(''); await onChanged(result.inventory); }, onError: (reason: Error) => onError(readApiError(reason)) });
+  const remove = useMutation({ mutationFn: (id: number) => Api.serverGroups.remove(id), onSuccess: (result) => onChanged(result.inventory), onError: (reason: Error) => onError(readApiError(reason)) });
   return <ModalBase open={open} onClose={onClose} title="Server groups" eyebrow="Ansible inventory" subtitle="Groups are published as native inventory groups.">
     <div className="ops-server-group-list">{groups.map((group) => <div key={group.id}><span><strong>{group.name}</strong><small className="ops-mono">[{group.ansibleName}] · {group.serverCount} servers</small></span><button className="ops-icon-button" disabled={remove.isPending} title="Remove group" onClick={() => remove.mutate(group.id)}><OperationsIcon name="trash" /></button></div>)}{!groups.length ? <div className="ops-empty-inline">No groups configured.</div> : null}</div>
     <div className="ops-server-group-create"><label className="ops-field"><span>Display name</span><input value={name} onChange={(event) => { setName(event.target.value); if (!ansibleName) setAnsibleName(slugify(event.target.value)); }} /></label><label className="ops-field"><span>Ansible name</span><input className="ops-mono" value={ansibleName} onChange={(event) => setAnsibleName(event.target.value.toLowerCase())} /></label><button className="ops-button" disabled={!name.trim() || !ansibleName.trim() || mutation.isPending} onClick={() => mutation.mutate()}><OperationsIcon name="plus" /> Add group</button></div>
@@ -374,10 +411,10 @@ function InventoryModal({ open, profile, onClose, onPublished }: { open: boolean
   </ModalBase>;
 }
 
-function ConfirmServerAction({ open, action, server, busy, onClose, onConfirm, onRemoved, onError }: { open: boolean; action: 'update' | 'reboot' | 'remove' | null; server: Server | null; busy: boolean; onClose: () => void; onConfirm: (confirmation: string) => void; onRemoved: () => void; onError: (message: string) => void }) {
+function ConfirmServerAction({ open, action, server, busy, onClose, onConfirm, onRemoved, onError }: { open: boolean; action: 'update' | 'reboot' | 'remove' | null; server: Server | null; busy: boolean; onClose: () => void; onConfirm: (confirmation: string) => void; onRemoved: (inventory?: SemaphoreProfile & { catalogSyncResult?: string }) => void; onError: (message: string) => void }) {
   const [value, setValue] = useState('');
   useEffect(() => { if (open) setValue(''); }, [open, action, server?.id]);
-  const remove = useMutation({ mutationFn: () => Api.servers.remove(server!.id, value), onSuccess: onRemoved, onError: (reason: Error) => onError(readApiError(reason)) });
+  const remove = useMutation({ mutationFn: () => Api.servers.remove(server!.id, value), onSuccess: (result) => onRemoved(result.inventory), onError: (reason: Error) => onError(readApiError(reason)) });
   if (!server || !action) return null;
   const title = action === 'remove' ? 'Remove server' : action === 'reboot' ? 'Reboot server' : 'Update packages';
   return <ModalBase open={open} onClose={onClose} title={title} eyebrow="Confirmation required" subtitle={`This operation targets only ${server.ansibleAlias}.`} size="sm">
@@ -387,7 +424,7 @@ function ConfirmServerAction({ open, action, server, busy, onClose, onConfirm, o
 }
 
 function serverToForm(server: Server) {
-  return { name: server.name, ansibleAlias: server.ansibleAlias, primaryIp: server.primaryIp, hostname: server.hostname, sshPort: String(server.sshPort), osName: server.osName, osVersion: server.osVersion, environment: server.environment, role: server.role, location: server.location, cockpitUrl: server.cockpitUrl, notes: server.notes, linkedDeviceId: server.linkedDeviceId ? String(server.linkedDeviceId) : '', groupIds: server.groups.map((group) => group.id), ansibleEnabled: server.ansibleEnabled, status: server.status };
+  return { name: server.name, ansibleAlias: server.ansibleAlias, primaryIp: server.primaryIp, hostname: server.hostname, sshUser: server.sshUser, sshPort: String(server.sshPort), osName: server.osName, osVersion: server.osVersion, environment: server.environment, role: server.role, location: server.location, cockpitUrl: server.cockpitUrl, notes: server.notes, linkedDeviceId: server.linkedDeviceId ? String(server.linkedDeviceId) : '', groupIds: server.groups.map((group) => group.id), ansibleEnabled: server.ansibleEnabled, status: server.status };
 }
 
 function profileToForm(profile: SemaphoreProfile) {
@@ -400,4 +437,29 @@ function numericProfilePayload(form: typeof emptyProfileForm) {
 
 function slugify(value: string) { return value.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 63); }
 function humanAction(value: string) { return value.replaceAll('_', ' ').replace(/^./, (letter) => letter.toUpperCase()); }
+function defaultSortDirection(key: ServerSortKey): SortDirection { return ['updates', 'security', 'reboot', 'lastUpdate', 'lastHealth'].includes(key) ? 'desc' : 'asc'; }
+function compareServers(left: Server, right: Server, key: ServerSortKey, direction: SortDirection) {
+  const multiplier = direction === 'asc' ? 1 : -1;
+  const nullable = (a: number | null, b: number | null) => {
+    if (a == null && b == null) return 0;
+    if (a == null) return 1;
+    if (b == null) return -1;
+    return (a - b) * multiplier;
+  };
+  if (key === 'server') return left.name.localeCompare(right.name, undefined, { sensitivity: 'base', numeric: true }) * multiplier;
+  if (key === 'health') return left.status.localeCompare(right.status, undefined, { sensitivity: 'base' }) * multiplier;
+  if (key === 'updates') return nullable(left.updates, right.updates);
+  if (key === 'security') return nullable(left.securityUpdates, right.securityUpdates);
+  if (key === 'reboot') return nullable(left.rebootRequired == null ? null : Number(left.rebootRequired), right.rebootRequired == null ? null : Number(right.rebootRequired));
+  const leftDate = Date.parse(key === 'lastUpdate' ? left.lastUpdateAt || '' : left.lastHealthAt || '');
+  const rightDate = Date.parse(key === 'lastUpdate' ? right.lastUpdateAt || '' : right.lastHealthAt || '');
+  return nullable(Number.isNaN(leftDate) ? null : leftDate, Number.isNaN(rightDate) ? null : rightDate);
+}
+function inventorySyncButtonTitle(state: SemaphoreProfile['inventorySyncState']) {
+  if (state === 'synced') return 'The Rakit and Semaphore inventories are synchronized';
+  if (state === 'uninitialized') return 'Choose the authoritative inventory before the first synchronization';
+  if (state === 'conflict') return 'The remote inventory changed; choose which inventory to keep';
+  if (state === 'failed') return 'The last synchronization failed; click to retry';
+  return 'Local server or group changes must be published to Semaphore';
+}
 function readApiError(error: Error) { try { return JSON.parse(error.message).error || error.message; } catch { return error.message || 'Operation failed'; } }

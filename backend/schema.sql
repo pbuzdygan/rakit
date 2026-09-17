@@ -280,6 +280,7 @@ CREATE TABLE IF NOT EXISTS servers (
   ansible_alias TEXT NOT NULL UNIQUE COLLATE NOCASE,
   hostname TEXT,
   primary_ip TEXT NOT NULL,
+  ssh_user TEXT,
   ssh_port INTEGER NOT NULL DEFAULT 22,
   os_family TEXT NOT NULL DEFAULT 'linux',
   os_name TEXT,
