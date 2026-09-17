@@ -10,6 +10,7 @@ import net from 'net';
 import { spawn } from 'child_process';
 import { IpDashClient } from './ipdashClient.js';
 import { SemaphoreClient, normalizeSemaphoreUrl } from './semaphoreClient.js';
+import { parseSemaphoreInventory } from './inventory.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1247,7 +1248,7 @@ const setInventorySyncState = (profileId, state, error = null, hash = null) => {
   `).run(state, error, hash, state, profileId);
 };
 
-const syncSemaphoreInventory = async ({ force = false } = {}) => {
+const syncSemaphoreInventory = async ({ force = false, expectedRemoteHash = '' } = {}) => {
   const profile = getSemaphoreProfileRow();
   if (!profile) throw new Error('Semaphore profile is not configured');
   const client = createSemaphoreClient(profile);
@@ -1256,8 +1257,13 @@ const syncSemaphoreInventory = async ({ force = false } = {}) => {
     const remote = await client.getInventory(profile.project_id, profile.inventory_id);
     const remoteContent = normalizeInventoryContent(remote?.inventory ?? '');
     const remoteHash = inventoryHash(remoteContent);
+    if (expectedRemoteHash && remoteHash !== expectedRemoteHash) {
+      const error = new Error('Semaphore inventory changed after the preview was loaded. Review both versions again.');
+      error.code = 'INVENTORY_CHANGED';
+      throw error;
+    }
     if (!force && !profile.inventory_last_hash) {
-      setInventorySyncState(profile.id, 'uninitialized', 'Review and adopt the inventory before the first publish.');
+      setInventorySyncState(profile.id, 'uninitialized', 'Review both inventories and choose the source for the first synchronization.');
       return { ok: false, state: 'uninitialized', desired, remote: remoteContent };
     }
     if (!force && remoteHash !== profile.inventory_last_hash) {
@@ -1278,13 +1284,98 @@ const syncSemaphoreInventory = async ({ force = false } = {}) => {
       setInventorySyncState(profile.id, 'synced', null, hash);
     });
     markPublished();
-    recordAudit({ action: force ? 'Semaphore inventory adopted' : 'Semaphore inventory synchronized', objectType: 'semaphore_inventory', objectId: profile.inventory_id, details: `${listServers().filter((server) => server.ansibleEnabled).length} managed servers` });
+    recordAudit({ action: force ? 'Rakit inventory published to Semaphore' : 'Semaphore inventory synchronized', objectType: 'semaphore_inventory', objectId: profile.inventory_id, details: `${listServers().filter((server) => server.ansibleEnabled).length} managed servers` });
     return { ok: true, state: 'synced', content: desired, hash };
   } catch (error) {
-    setInventorySyncState(profile.id, 'failed', clampText(error?.message || 'Inventory synchronization failed', 500));
-    recordAudit({ action: 'Semaphore inventory synchronization failed', objectType: 'semaphore_inventory', objectId: profile.inventory_id, details: error?.message || 'Unknown error', result: 'error' });
+    const state = error?.code === 'INVENTORY_CHANGED' ? 'conflict' : 'failed';
+    setInventorySyncState(profile.id, state, clampText(error?.message || 'Inventory synchronization failed', 500));
+    recordAudit({ action: error?.code === 'INVENTORY_CHANGED' ? 'Semaphore inventory conflict' : 'Semaphore inventory synchronization failed', objectType: 'semaphore_inventory', objectId: profile.inventory_id, details: error?.message || 'Unknown error', result: 'error' });
     throw error;
   }
+};
+
+const importRemoteSemaphoreInventory = async (expectedRemoteHash = '') => {
+  const profile = getSemaphoreProfileRow();
+  if (!profile) throw new Error('Semaphore profile is not configured');
+  const client = createSemaphoreClient(profile);
+  const remote = await client.getInventory(profile.project_id, profile.inventory_id);
+  const remoteContent = normalizeInventoryContent(remote?.inventory ?? '');
+  const remoteHash = inventoryHash(remoteContent);
+  if (expectedRemoteHash && remoteHash !== expectedRemoteHash) {
+    const error = new Error('Semaphore inventory changed after the preview was loaded. Review both versions again.');
+    error.code = 'INVENTORY_CHANGED';
+    throw error;
+  }
+  const imported = parseSemaphoreInventory(remoteContent);
+  const previousManaged = db.prepare('SELECT ansible_alias FROM servers WHERE ansible_enabled=1').all();
+  const importedAliases = new Set(imported.hosts.map((host) => host.alias.toLowerCase()));
+  const previousManagedCount = previousManaged.length;
+  const previousManagedDisabled = previousManaged.filter((server) => !importedAliases.has(server.ansible_alias.toLowerCase())).length;
+  const importedServerIds = [];
+
+  const applyImport = db.transaction(() => {
+    db.prepare('UPDATE servers SET ansible_enabled=0, inventory_published_signature=NULL WHERE ansible_enabled=1').run();
+    db.prepare('DELETE FROM server_group_members').run();
+    db.prepare('DELETE FROM server_groups').run();
+
+    const groupIds = new Map();
+    const insertGroup = db.prepare('INSERT INTO server_groups(name, ansible_name) VALUES (?, ?)');
+    for (const group of imported.groups) {
+      groupIds.set(group.name, Number(insertGroup.run(group.name, group.name).lastInsertRowid));
+    }
+
+    const findServer = db.prepare('SELECT * FROM servers WHERE ansible_alias=? COLLATE NOCASE');
+    const updateServer = db.prepare(`
+      UPDATE servers
+      SET primary_ip=?, ssh_port=?, ansible_enabled=1, inventory_published_signature=NULL
+      WHERE id=?
+    `);
+    const insertServer = db.prepare(`
+      INSERT INTO servers(name, ansible_alias, hostname, primary_ip, ssh_port, os_family,
+        ansible_enabled, inventory_published_signature, status)
+      VALUES (?, ?, ?, ?, ?, 'linux', 1, NULL, 'unknown')
+    `);
+    const serverIdsByAlias = new Map();
+    for (const host of imported.hosts) {
+      const existing = findServer.get(host.alias);
+      const serverId = existing
+        ? (updateServer.run(host.address, host.port, existing.id), Number(existing.id))
+        : Number(insertServer.run(host.alias, host.alias, net.isIP(host.address) ? null : host.address, host.address, host.port).lastInsertRowid);
+      serverIdsByAlias.set(host.alias, serverId);
+      importedServerIds.push(serverId);
+    }
+
+    const insertMembership = db.prepare('INSERT INTO server_group_members(server_id, group_id) VALUES (?, ?)');
+    for (const group of imported.groups) {
+      const groupId = groupIds.get(group.name);
+      for (const alias of group.members) insertMembership.run(serverIdsByAlias.get(alias), groupId);
+    }
+
+    const clearNetworkStatus = db.prepare('DELETE FROM server_network_status WHERE server_id=?');
+    const markPublished = db.prepare('UPDATE servers SET inventory_published_signature=? WHERE id=?');
+    for (const serverId of importedServerIds) {
+      clearNetworkStatus.run(serverId);
+      const server = db.prepare('SELECT * FROM servers WHERE id=?').get(serverId);
+      markPublished.run(serverInventorySignature(server), serverId);
+    }
+    setInventorySyncState(profile.id, 'synced', null, remoteHash);
+  });
+  applyImport();
+
+  recordAudit({
+    action: 'Semaphore inventory imported',
+    objectType: 'semaphore_inventory',
+    objectId: profile.inventory_id,
+    details: `${imported.hosts.length} hosts · ${imported.groups.length} groups · ${previousManagedDisabled} previous managed hosts disabled`,
+  });
+  refreshServerNetworkStatus(importedServerIds).catch((error) => console.warn('[Network] Could not probe imported servers:', error?.message || error));
+  return {
+    state: 'synced',
+    hostsImported: imported.hosts.length,
+    groupsImported: imported.groups.length,
+    previousManagedCount,
+    previousManagedDisabled,
+  };
 };
 
 const syncAfterCatalogChange = async () => {
@@ -2410,6 +2501,7 @@ app.get('/api/semaphore/profile/:profileId/inventory-diff', async (req, res) => 
     res.json({
       desired,
       remote: remoteContent,
+      remoteHash: inventoryHash(remoteContent),
       changed: inventoryHash(desired) !== inventoryHash(remoteContent),
       state: profile.inventory_sync_state,
     });
@@ -2423,11 +2515,33 @@ app.post('/api/semaphore/profile/:profileId/inventory-adopt', async (req, res) =
   const profile = getSemaphoreProfileRow();
   if (!profile || profile.id !== Number(req.params.profileId)) return res.status(404).json({ error: 'Semaphore profile not found' });
   if (req.body?.confirmation !== 'REPLACE') return res.status(400).json({ error: 'Type REPLACE to publish Rakit inventory' });
+  const expectedRemoteHash = clampText(req.body?.expectedRemoteHash, 64);
+  if (!/^[a-f0-9]{64}$/.test(expectedRemoteHash)) return res.status(400).json({ error: 'Reload the inventory preview before choosing a source' });
   try {
-    const result = await syncSemaphoreInventory({ force: true });
+    const result = await syncSemaphoreInventory({ force: true, expectedRemoteHash });
     res.json({ ok: true, result, profile: mapSemaphoreProfileRow(getSemaphoreProfileRow()) });
   } catch (error) {
-    res.status(502).json({ error: error?.message || 'Inventory publish failed' });
+    res.status(error?.code === 'INVENTORY_CHANGED' ? 409 : 502).json({ error: error?.message || 'Inventory publish failed', code: error?.code });
+  }
+});
+
+app.post('/api/semaphore/profile/:profileId/inventory-import', async (req, res) => {
+  if (!guardEncryptionReady(res)) return;
+  const profile = getSemaphoreProfileRow();
+  if (!profile || profile.id !== Number(req.params.profileId)) return res.status(404).json({ error: 'Semaphore profile not found' });
+  if (req.body?.confirmation !== 'KEEP_REMOTE') return res.status(400).json({ error: 'Confirm KEEP_REMOTE to import the Semaphore inventory' });
+  const expectedRemoteHash = clampText(req.body?.expectedRemoteHash, 64);
+  if (!/^[a-f0-9]{64}$/.test(expectedRemoteHash)) return res.status(400).json({ error: 'Reload the inventory preview before choosing a source' });
+  try {
+    const result = await importRemoteSemaphoreInventory(expectedRemoteHash);
+    res.json({ ok: true, result, profile: mapSemaphoreProfileRow(getSemaphoreProfileRow()) });
+  } catch (error) {
+    if (error?.code === 'INVENTORY_CHANGED') {
+      setInventorySyncState(profile.id, 'conflict', clampText(error.message, 500));
+      return res.status(409).json({ error: error.message, code: error.code });
+    }
+    const validationError = /cannot be|cannot be preserved|does not contain|is empty|Invalid |Unsupported |Conflicting |needs a valid|exceeds the/i.test(error?.message || '');
+    res.status(validationError ? 400 : 502).json({ error: error?.message || 'Remote inventory import failed' });
   }
 });
 
@@ -2437,7 +2551,7 @@ app.post('/api/semaphore/profile/:profileId/inventory-sync', async (req, res) =>
   if (!profile || profile.id !== Number(req.params.profileId)) return res.status(404).json({ error: 'Semaphore profile not found' });
   try {
     const result = await syncSemaphoreInventory();
-    if (!result.ok) return res.status(409).json({ error: result.state === 'conflict' ? 'Semaphore inventory has changed outside Rakit' : 'Inventory requires first adoption', code: result.state.toUpperCase(), ...result });
+    if (!result.ok) return res.status(409).json({ error: result.state === 'conflict' ? 'Semaphore inventory has changed outside Rakit' : 'Choose the inventory source before the first synchronization', code: result.state.toUpperCase(), ...result });
     res.json({ ok: true, result, profile: mapSemaphoreProfileRow(getSemaphoreProfileRow()) });
   } catch (error) {
     res.status(502).json({ error: error?.message || 'Inventory synchronization failed' });

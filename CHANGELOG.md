@@ -24,6 +24,7 @@ All notable changes to this project will be documented in this file.
 - Scheduled Semaphore tasks now import per-host health, update-check, package-update and reboot results, while tasks launched manually in Semaphore remain external to Rakit.
 - Improved the Servers mobile layout with compact server cards, responsive controls and a full-width inspector without edge shadows.
 - Updated snapshot export module names to match the current navigation and added a detailed Servers worksheet.
+- Added a bidirectional first inventory synchronization choice: keep and publish the Rakit catalogue, or safely import a compatible remote Semaphore inventory as the initial local source of truth.
 
 ### Bug fixes
 - Fixed explicit `Ports per row` layouts using odd/even port placement instead of filling each row sequentially.

@@ -27,6 +27,7 @@ RUN --mount=type=cache,target=/root/.npm \
 COPY backend ./
 RUN node --check server.js \
  && node --check db.js \
+ && node --check inventory.js \
  && node --check ipdashClient.js \
  && node --check semaphoreClient.js \
  && node --check export.js \

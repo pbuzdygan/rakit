@@ -344,6 +344,7 @@ POST   /api/semaphore/profile/test
 POST   /api/semaphore/profile/:id/discover
 GET    /api/semaphore/profile/:id/inventory-diff
 POST   /api/semaphore/profile/:id/inventory-adopt
+POST   /api/semaphore/profile/:id/inventory-import
 POST   /api/semaphore/profile/:id/inventory-sync
 ```
 
@@ -448,7 +449,9 @@ Profil znajduje się w ustawieniach/integrations i prowadzi użytkownika kolejno
 3. wybór projektu,
 4. wybór dedykowanego inventory,
 5. mapowanie czterech templates,
-6. podgląd inventory i pierwsze `Adopt inventory`.
+6. podgląd obu inventory i wybór `Keep Rakit Inventory` albo `Keep Remote Inventory`.
+
+Pierwsza opcja publikuje lokalną projekcję w Semaphore. Druga importuje kompatybilne hosty oraz grupy z inventory INI do Rakita, zachowując dodatkowe lokalne metadane serwerów o tych samych aliasach. Konstrukcje, których Rakit nie potrafi zachować bez utraty znaczenia (np. YAML, `:vars`, `:children` albo dodatkowe zmienne hosta), są odrzucane przed rozpoczęciem transakcji.
 
 Wybór identyfikatorów odbywa się z danych odkrytych przez API, nie przez ręczne przepisywanie numerów, choć zaawansowany tryb może je pokazywać.
 
