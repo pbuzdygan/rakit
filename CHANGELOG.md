@@ -22,6 +22,8 @@ All notable changes to this project will be documented in this file.
 - Added an independent per-server network reachability signal, refreshed with one ICMP echo to the management address every minute; TCP probing remains available only as an explicit opt-in.
 - Separated health from package checks: only health tasks now update the Health state and Last health timestamp.
 - Scheduled Semaphore tasks now import per-host health, update-check, package-update and reboot results, while tasks launched manually in Semaphore remain external to Rakit.
+- Improved the Servers mobile layout with compact server cards, responsive controls and a full-width inspector without edge shadows.
+- Updated snapshot export module names to match the current navigation and added a detailed Servers worksheet.
 
 ### Bug fixes
 - Fixed explicit `Ports per row` layouts using odd/even port placement instead of filling each row sequentially.

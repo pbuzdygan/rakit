@@ -358,12 +358,12 @@ IP Dash scopes and offline hosts:
 
 - `POST /api/export`
   - Input payload:
-    - `modules?: string[]` – list of included modules (e.g. `['cabinet', 'ipdash']`).
+    - `modules?: string[]` – list of included modules (`cabinet`, `servers`, `connections`, `wol`, `ipdash`).
     - `ipdash?: { … }` – optional IP Dash context parameters (profileId, filters, view, etc.).
   - Behavior:
     - Resolves which modules to include.
     - If IP Dash is requested, first checks `guardEncryptionReady` and then builds IP Dash context.
-    - Calls `buildExportWorkbook({ includeCabinet, ipDashContext })`.
+    - Calls `buildExportWorkbook` with the selected Racks, Servers, Port Map, Wake on LAN and IP Addressing modules.
     - Streams Excel workbook with headers:
       - `Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
       - `Content-Disposition: attachment; filename="rakit_export.xlsx"`.
@@ -376,8 +376,9 @@ Workbook structure (`export.js`):
 - Sheets:
   - `Overview`
     - Summarizes included modules:
-      - IT Cabinet: count of cabinets/devices, total capacity U.
-      - IP Dash: presence of live snapshot sheets.
+      - Racks: count of cabinets/devices, total capacity U.
+      - Servers: host count plus reachable and healthy totals.
+      - IP Addressing: presence of live snapshot sheets.
     - Contains a branded hero tile with Rakit description (light‑mode ready).
   - `Cabinets`
     - Tabular list of cabinets with counts of devices per rack.
@@ -385,6 +386,8 @@ Workbook structure (`export.js`):
     - Visual representation of devices and free space per rack.
   - Experimental cabinet sheet
     - Additional layout for experimenting with rack design.
+  - `Servers`
+    - Host identity, managed-inventory state, groups, network and health state, update state, operating system and rack linkage.
   - IP Dash sheets
     - Device/client listings, networks, scopes, and offline reservations (when IP Dash context is present).
 

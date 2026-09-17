@@ -3533,6 +3533,7 @@ app.post('/api/export', async (req,res)=>{
     const { modules, ipdash } = req.body || {};
     const requestedModules = Array.isArray(modules) && modules.length ? modules : ['cabinet'];
     const includeCabinet = requestedModules.includes('cabinet');
+    const includeServers = requestedModules.includes('servers');
     const includeConnections = requestedModules.includes('connections');
     const includeWol = requestedModules.includes('wol');
     const includeIpDash = requestedModules.includes('ipdash');
@@ -3541,7 +3542,7 @@ app.post('/api/export', async (req,res)=>{
     if (includeIpDash) {
       ipDashContext = await buildIpDashContext(ipdash);
     }
-    const wb = buildExportWorkbook({ includeCabinet, includeConnections, includeWol, ipDashContext });
+    const wb = buildExportWorkbook({ includeCabinet, includeServers, includeConnections, includeWol, ipDashContext });
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', 'attachment; filename="rakit_export.xlsx"');
     await wb.xlsx.write(res);

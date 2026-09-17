@@ -159,17 +159,17 @@ export function ServersView() {
             <thead><tr><th>Server</th><th className="ops-server-sync-heading" title="Semaphore inventory status">Sync</th><th>Network</th><th>Health</th><th>Groups</th><th>Updates</th><th>Security</th><th>Reboot</th><th>Last update</th><th>Last health</th><th /></tr></thead>
             <tbody>{visible.map((server) => (
               <tr key={server.id} className={selectedId === server.id ? 'is-selected' : ''} onClick={() => setSelectedId(server.id)}>
-                <td><div className="ops-cell-device"><span><OperationsIcon name="server" /></span><div><strong>{server.name}</strong><small><span className="ops-mono">{server.primaryIp}</span>{server.role ? ` · ${server.role}` : ''}</small></div></div></td>
-                <td><ServerInventoryState server={server} /></td>
-                <td><ServerNetworkState server={server} timeZone={timeZone} /></td>
-                <td><ServerState server={server} /></td>
-                <td><div className="ops-server-tags">{server.groups.slice(0, 2).map((group) => <span key={group.id}>{group.name}</span>)}{server.groups.length > 2 ? <small>+{server.groups.length - 2}</small> : null}</div></td>
-                <td><UpdateCount value={server.updates} tone={server.updates ? 'warning' : 'ok'} /></td>
-                <td><UpdateCount value={server.securityUpdates} tone={server.securityUpdates ? 'danger' : 'neutral'} /></td>
-                <td>{server.rebootRequired == null ? <span className="ops-muted">—</span> : <span className={`ops-state ops-state--${server.rebootRequired ? 'warning' : 'neutral'}`}>{server.rebootRequired ? 'Required' : 'No'}</span>}</td>
-                <td><LastUpdate server={server} timeZone={timeZone} /></td>
-                <td className="ops-muted" title={server.lastHealthAt ? formatDateTime(server.lastHealthAt, timeZone) : undefined}>{server.lastHealthAt ? formatRelativeTime(server.lastHealthAt) : 'Never'}</td>
-                <td><OperationsIcon name="chevron" /></td>
+                <td data-label="Server"><div className="ops-cell-device"><span><OperationsIcon name="server" /></span><div><strong>{server.name}</strong><small><span className="ops-mono">{server.primaryIp}</span>{server.role ? ` · ${server.role}` : ''}</small></div></div></td>
+                <td data-label="Sync"><ServerInventoryState server={server} /></td>
+                <td data-label="Network"><ServerNetworkState server={server} timeZone={timeZone} /></td>
+                <td data-label="Health"><ServerState server={server} /></td>
+                <td data-label="Groups"><div className="ops-server-tags">{server.groups.slice(0, 2).map((group) => <span key={group.id}>{group.name}</span>)}{server.groups.length > 2 ? <small>+{server.groups.length - 2}</small> : null}</div></td>
+                <td data-label="Updates"><UpdateCount value={server.updates} tone={server.updates ? 'warning' : 'ok'} /></td>
+                <td data-label="Security"><UpdateCount value={server.securityUpdates} tone={server.securityUpdates ? 'danger' : 'neutral'} /></td>
+                <td data-label="Reboot">{server.rebootRequired == null ? <span className="ops-muted">—</span> : <span className={`ops-state ops-state--${server.rebootRequired ? 'warning' : 'neutral'}`}>{server.rebootRequired ? 'Required' : 'No'}</span>}</td>
+                <td data-label="Last update"><LastUpdate server={server} timeZone={timeZone} /></td>
+                <td data-label="Last health" className="ops-muted" title={server.lastHealthAt ? formatDateTime(server.lastHealthAt, timeZone) : undefined}>{server.lastHealthAt ? formatRelativeTime(server.lastHealthAt) : 'Never'}</td>
+                <td aria-hidden="true"><OperationsIcon name="chevron" /></td>
               </tr>
             ))}</tbody>
           </table>

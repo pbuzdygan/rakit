@@ -13,7 +13,7 @@ import {
   IPDASH_TAG_STORAGE_KEY,
 } from '../../constants/ipdash';
 
-type ModuleId = 'cabinet' | 'connections' | 'wol' | 'ipdash';
+type ModuleId = 'cabinet' | 'servers' | 'connections' | 'wol' | 'ipdash';
 
 type ExportStatus = 'idle' | 'preparing' | 'success' | 'error';
 
@@ -27,13 +27,25 @@ type IpDashPrefs = {
 const MODULE_OPTIONS: Array<{ id: ModuleId; label: string; description: string; icon: string }> = [
   {
     id: 'cabinet',
-    label: 'IT Cabinet',
-    description: 'Cabinets, devices and an experimental rack perspective.',
+    label: 'Racks',
+    description: 'Racks, installed devices, capacity and physical placement.',
     icon: 'RACK',
   },
   {
+    id: 'servers',
+    label: 'Servers',
+    description: 'Managed hosts, network and health state, updates and groups.',
+    icon: 'SRV',
+  },
+  {
+    id: 'ipdash',
+    label: 'IP Addressing',
+    description: 'Current network view with your filters, grouping and layout.',
+    icon: 'IP',
+  },
+  {
     id: 'connections',
-    label: 'Port connections',
+    label: 'Port Map',
     description: 'Source and destination ports, VLANs, tags and linked assets.',
     icon: 'LINK',
   },
@@ -42,12 +54,6 @@ const MODULE_OPTIONS: Array<{ id: ModuleId; label: string; description: string; 
     label: 'Wake on LAN',
     description: 'Machines, reachability configuration and wake schedules.',
     icon: 'WOL',
-  },
-  {
-    id: 'ipdash',
-    label: 'IP Dash',
-    description: 'Current network view with your filters, grouping and layout.',
-    icon: 'IP',
   },
 ];
 
@@ -78,12 +84,12 @@ export function ExportModal() {
   const [working, setWorking] = useState(false);
   const [status, setStatus] = useState<ExportStatus>('idle');
   const [statusMessage, setStatusMessage] = useState('');
-  const [selectedModules, setSelectedModules] = useState<ModuleId[]>(['cabinet', 'connections', 'wol']);
+  const [selectedModules, setSelectedModules] = useState<ModuleId[]>(['cabinet', 'servers', 'connections', 'wol']);
   const [ipDashPrefs, setIpDashPrefs] = useState<IpDashPrefs>(() => loadIpDashPrefs());
   const profilesQuery = useQuery({ queryKey: ['ipdash-profiles'], queryFn: Api.ipdash.profiles.list });
   const encryptionBlocked = Boolean(profilesQuery.data?.encryptionKeyMismatch);
   const encryptionMessage =
-    (profilesQuery.data?.encryptionMessage as string) || 'Encryption key changed. Reset encrypted profiles to export IP Dash.';
+    (profilesQuery.data?.encryptionMessage as string) || 'Encryption key changed. Reset encrypted profiles to export IP Addressing.';
 
   const canExportIpDash = Boolean(ipDashActiveProfileId) && !encryptionBlocked;
 
@@ -92,7 +98,7 @@ export function ExportModal() {
     setStatus('idle');
     setStatusMessage('');
     setIpDashPrefs(loadIpDashPrefs());
-    setSelectedModules(canExportIpDash ? ['cabinet', 'connections', 'wol', 'ipdash'] : ['cabinet', 'connections', 'wol']);
+    setSelectedModules(canExportIpDash ? ['cabinet', 'servers', 'connections', 'wol', 'ipdash'] : ['cabinet', 'servers', 'connections', 'wol']);
   }, [open, canExportIpDash]);
 
   useEffect(() => {
@@ -187,7 +193,7 @@ export function ExportModal() {
                 </span>
                 {option.id === 'ipdash' && !canExportIpDash && (
                   <span className="export-module-note">
-                    {encryptionBlocked ? encryptionMessage : 'Add an IP Dash profile to enable this module.'}
+                    {encryptionBlocked ? encryptionMessage : 'Add an IP Addressing profile to enable this module.'}
                   </span>
                 )}
               </label>
