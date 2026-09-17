@@ -22,6 +22,7 @@ All notable changes to this project will be documented in this file.
 ### Bug fixes
 - Fixed successful Semaphore tasks remaining indefinitely in Running when the user navigated away before completion.
 - Fixed update results being missed when Semaphore wraps the `RAKIT_RESULT_V1` JSON across multiple output lines.
+- Fixed update and health result collection by reading Semaphore's plain-text task log endpoint, removing terminal colour codes and retaining a compatibility fallback to the structured output endpoint.
 
 ## [1.3.0]
 

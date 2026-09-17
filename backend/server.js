@@ -1235,10 +1235,23 @@ const extractMarkerJsonRecords = (text, marker) => {
 };
 
 const semaphoreOutputText = (output) => {
+  const stripTerminalFormatting = (value) => String(value ?? '')
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '');
+  if (typeof output === 'string') return stripTerminalFormatting(output);
   const entries = Array.isArray(output) ? output : output?.output ?? [];
-  return Array.isArray(entries)
+  const text = Array.isArray(entries)
     ? entries.map((entry) => typeof entry === 'string' ? entry : entry?.output ?? '').join('\n')
     : String(entries ?? '');
+  return stripTerminalFormatting(text);
+};
+
+const getSemaphoreTaskOutput = async (client, projectId, taskId) => {
+  try {
+    return await client.getTaskRawOutput(projectId, taskId);
+  } catch (error) {
+    if (![404, 405].includes(Number(error?.status))) throw error;
+    return client.getTaskOutput(projectId, taskId);
+  }
 };
 
 const parseRakitTaskResult = (output, expectedAlias) => {
@@ -2471,10 +2484,10 @@ const reconcileServerAction = async (actionId) => {
   }
   if (actionRow.action === 'check_updates' && status === 'success' && actionRow.server_id) {
     const server = getServer(actionRow.server_id);
-    const output = await client.getTaskOutput(profile.project_id, actionRow.semaphore_task_id);
-      const result = server ? parseRakitTaskResult(output, server.ansibleAlias) : null;
-      if (result) {
-        db.prepare(`
+    const output = await getSemaphoreTaskOutput(client, profile.project_id, actionRow.semaphore_task_id);
+    const result = server ? parseRakitTaskResult(output, server.ansibleAlias) : null;
+    if (result) {
+      db.prepare(`
           INSERT INTO server_update_status(server_id, updates_available, security_updates, reboot_required, kernel, uptime_seconds, checked_at, check_result, source_task_id, raw_result_json)
           VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, 'ok', ?, ?)
           ON CONFLICT(server_id) DO UPDATE SET
@@ -2482,20 +2495,20 @@ const reconcileServerAction = async (actionId) => {
             reboot_required=excluded.reboot_required, kernel=excluded.kernel, uptime_seconds=excluded.uptime_seconds,
             checked_at=CURRENT_TIMESTAMP, check_result='ok', source_task_id=excluded.source_task_id,
             raw_result_json=excluded.raw_result_json
-        `).run(server.id, result.updates, result.security, result.rebootRequired ? 1 : 0, result.kernel || null, result.uptimeSeconds, actionRow.semaphore_task_id, JSON.stringify(result));
-        db.prepare('UPDATE server_actions SET result_summary=? WHERE id=?').run(`${result.updates} updates · ${result.security} security`, actionId);
-      } else {
-        db.prepare(`
+      `).run(server.id, result.updates, result.security, result.rebootRequired ? 1 : 0, result.kernel || null, result.uptimeSeconds, actionRow.semaphore_task_id, JSON.stringify(result));
+      db.prepare('UPDATE server_actions SET result_summary=? WHERE id=?').run(`${result.updates} updates · ${result.security} security`, actionId);
+    } else {
+      db.prepare(`
           INSERT INTO server_update_status(server_id, checked_at, check_result, source_task_id)
           VALUES (?, CURRENT_TIMESTAMP, 'partial', ?)
           ON CONFLICT(server_id) DO UPDATE SET checked_at=CURRENT_TIMESTAMP, check_result='partial', source_task_id=excluded.source_task_id
-        `).run(server.id, actionRow.semaphore_task_id);
-        db.prepare("UPDATE server_actions SET result_summary='Task succeeded without a RAKIT_RESULT_V1 record' WHERE id=?").run(actionId);
-      }
+      `).run(server.id, actionRow.semaphore_task_id);
+      db.prepare("UPDATE server_actions SET result_summary='Task succeeded without a RAKIT_RESULT_V1 record' WHERE id=?").run(actionId);
+    }
   }
   if (actionRow.action === 'health_check' && status === 'success' && actionRow.server_id) {
     const server = getServer(actionRow.server_id);
-    const output = await client.getTaskOutput(profile.project_id, actionRow.semaphore_task_id);
+    const output = await getSemaphoreTaskOutput(client, profile.project_id, actionRow.semaphore_task_id);
     const result = server ? parseRakitHealthResult(output, server.ansibleAlias) : null;
     if (result) {
       db.prepare(`

@@ -56,7 +56,15 @@ export const normalizeSemaphoreUrl = (value) => {
   }
 };
 
-const requestJson = async ({ url, method = 'GET', headers = {}, body, timeout = DEFAULT_TIMEOUT, allowSelfSigned = false }) => {
+const requestJson = async ({
+  url,
+  method = 'GET',
+  headers = {},
+  body,
+  timeout = DEFAULT_TIMEOUT,
+  allowSelfSigned = false,
+  responseType = 'json',
+}) => {
   const target = new URL(url);
   const addresses = await assertAllowedTarget(target);
   const payload = body == null ? null : Buffer.from(JSON.stringify(body), 'utf8');
@@ -67,7 +75,7 @@ const requestJson = async ({ url, method = 'GET', headers = {}, body, timeout = 
     const request = client.request(target, {
       method,
       headers: {
-        Accept: 'application/json',
+        Accept: responseType === 'text' ? 'text/plain' : 'application/json',
         ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': payload.length } : {}),
         ...headers,
       },
@@ -95,6 +103,10 @@ const requestJson = async ({ url, method = 'GET', headers = {}, body, timeout = 
       });
       response.on('end', () => {
         const raw = Buffer.concat(chunks).toString('utf8');
+        if (responseType === 'text' && response.statusCode && response.statusCode >= 200 && response.statusCode < 300) {
+          resolve(raw);
+          return;
+        }
         let parsed = null;
         if (raw) {
           try { parsed = JSON.parse(raw); }
@@ -156,6 +168,9 @@ export class SemaphoreClient {
   launchTask(projectId, payload) { return this.request(`/project/${Number(projectId)}/tasks`, { method: 'POST', body: payload }); }
   getTask(projectId, taskId) { return this.request(`/project/${Number(projectId)}/tasks/${Number(taskId)}`); }
   getTaskOutput(projectId, taskId) { return this.request(`/project/${Number(projectId)}/tasks/${Number(taskId)}/output`); }
+  getTaskRawOutput(projectId, taskId) {
+    return this.request(`/project/${Number(projectId)}/tasks/${Number(taskId)}/raw_output`, { responseType: 'text' });
+  }
 
   async discover(projectId = null) {
     const projectsPayload = await this.listProjects();
@@ -173,4 +188,3 @@ export class SemaphoreClient {
     };
   }
 }
-
