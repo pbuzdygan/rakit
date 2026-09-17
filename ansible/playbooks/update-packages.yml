@@ -3,7 +3,24 @@
   hosts: all
   gather_facts: true
   become: true
+  become_method: sudo
+  become_user: root
   serial: 1
+
+  pre_tasks:
+    - name: Verify privilege escalation to root
+      ansible.builtin.command: /usr/bin/id -u
+      register: rakit_effective_uid
+      changed_when: false
+      become: true
+
+    - name: Require effective root privileges
+      ansible.builtin.assert:
+        that:
+          - rakit_effective_uid.stdout | trim == '0'
+        fail_msg: >-
+          Sudo privilege escalation is not active. Configure the inventory Become Key
+          in Semaphore or install the documented NOPASSWD rule for the SSH user.
 
   tasks:
     - name: Require a Debian-family target
@@ -34,4 +51,3 @@
             'changed': rakit_upgrade.changed | default(false),
             'rebootRequired': rakit_reboot_marker.stat.exists | default(false)
           } | to_json }}
-

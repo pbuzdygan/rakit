@@ -20,3 +20,4 @@ All templates must use the dedicated inventory managed by Rakit. Enable the **Li
 
 The check playbook currently targets Debian-family systems using APT. Unsupported operating systems fail explicitly instead of reporting a misleading zero update count.
 
+The update check, package upgrade and reboot playbooks explicitly use `sudo` to become `root` and verify the effective UID before making changes. Configure the inventory's Become Key in Semaphore, or provide a tested `NOPASSWD` rule for the dedicated SSH account.

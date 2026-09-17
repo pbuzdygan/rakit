@@ -83,6 +83,7 @@ W Semaphore otwórz **Key Store**:
 
 1. edytuj `Rakit SSH`, ustaw login `ansible` i wklej cały prywatny klucz,
 2. edytuj `Rakit Sudo`, ustaw login `ansible` i podaj hasło utworzone wyżej.
+3. otwórz **Inventory → RAKIT Managed Servers → Edit** i upewnij się, że **Sudo Credentials / Become Key** wskazuje `Rakit Sudo`.
 
 Hasło służy tylko do eskalacji `become: true`; logowanie SSH nadal odbywa się kluczem.
 
@@ -97,6 +98,16 @@ sudo visudo -cf /etc/sudoers.d/90-ansible
 ```
 
 Następnie w inventory `RAKIT Managed Servers` ustaw **Sudo Credentials / Become Key** na `None`. Wpis `Rakit Sudo` nie będzie używany.
+
+W obu wariantach sprawdź uprawnienia bezpośrednio po zalogowaniu jako użytkownik techniczny:
+
+```bash
+ssh -i ./semaphore_ansible_ed25519 ansible@ADRES_IP
+sudo -k
+sudo /usr/bin/id -u
+```
+
+Ostatnie polecenie musi zwrócić `0`. W wariancie A podaj hasło użytkownika `ansible`; w wariancie B polecenie nie powinno pytać o hasło.
 
 ## 4. Ustawienia wymagane po Restore Project
 
@@ -135,4 +146,4 @@ Dane pozostają w SQLite Rakita. Po późniejszym podłączeniu Semaphore genera
 5. Dopiero po sukcesie wywołaj kontrolę z karty serwera w Rakit.
 6. `Update packages` i `Reboot server` przetestuj najpierw poza produkcją.
 
-Jeśli zadanie zwraca `Permission denied`, sprawdź publiczny klucz i login `ansible`. Jeśli zatrzymuje się na `sudo`, sprawdź `Rakit Sudo` albo `Become Key = None` przy wariancie `NOPASSWD`.
+Jeśli APT zgłasza brak dostępu do `/var/lib/dpkg/lock-frontend`, zadanie nie otrzymało uprawnień root. Dla wariantu A sprawdź sekret `Rakit Sudo` i przypisanie `Become Key = Rakit Sudo` do inventory. Dla wariantu B sprawdź regułę przez `sudo visudo -cf /etc/sudoers.d/90-ansible` i ustaw `Become Key = None`. Sam działający `Check updates` nie potwierdza poprawnego sudo, jeżeli cache APT był jeszcze aktualny; dołączone playbooki wykonują teraz osobny test efektywnego UID.
