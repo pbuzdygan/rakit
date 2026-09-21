@@ -415,7 +415,7 @@ function addServerSheet(workbook, servers) {
     network: server.network_status ?? 'unknown',
     networkChecked: server.network_checked_at ?? '',
     latency: server.network_latency_ms ?? '',
-    health: server.status ?? 'unknown',
+    health: !server.ansible_enabled ? 'Not managed' : server.status ?? 'unknown',
     healthChecked: server.health_checked_at ?? '',
     updates: server.updates_available ?? '',
     security: server.security_updates ?? '',

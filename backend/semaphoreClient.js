@@ -58,11 +58,18 @@ export const normalizeSemaphoreUrl = (value) => {
 
 export const buildTaskLaunchPayload = (templateId, targetLimit) => {
   const limit = String(targetLimit || '').trim();
+  if (!limit) throw new Error('A target host limit is required for a server task');
   return {
     template_id: Number(templateId),
-    ...(limit ? { limit, params: { limit: [limit] } } : {}),
+    // Semaphore <=2.12 reads the deprecated top-level value. Current
+    // releases read params.limit when the template allows overriding limits.
+    limit,
+    params: { limit: [limit] },
   };
 };
+
+export const templateAllowsHostLimit = (template) =>
+  template?.task_params?.allow_override_limit === true;
 
 const requestJson = async ({
   url,

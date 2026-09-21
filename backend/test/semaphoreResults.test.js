@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildTaskLaunchPayload } from '../semaphoreClient.js';
+import { buildTaskLaunchPayload, templateAllowsHostLimit } from '../semaphoreClient.js';
 import { parseRakitOperationResult, parseRakitTaskResult } from '../semaphoreResults.js';
 
 test('task launch payload carries the selected host in current and legacy Semaphore fields', () => {
@@ -9,6 +9,17 @@ test('task launch payload carries the selected host in current and legacy Semaph
     limit: 'buzhulk-dev',
     params: { limit: ['buzhulk-dev'] },
   });
+});
+
+test('server task launch refuses to run without a host limit', () => {
+  assert.throws(() => buildTaskLaunchPayload(12, '  '), /target host limit is required/i);
+});
+
+test('only an explicitly enabled Semaphore limit override is accepted', () => {
+  assert.equal(templateAllowsHostLimit({ task_params: { allow_override_limit: true } }), true);
+  assert.equal(templateAllowsHostLimit({ task_params: { allow_override_limit: false } }), false);
+  assert.equal(templateAllowsHostLimit({ task_params: { params: { limit: [] } } }), false);
+  assert.equal(templateAllowsHostLimit({}), false);
 });
 
 test('extracts every host result from a failed multi-host log with wrapped timestamps', () => {

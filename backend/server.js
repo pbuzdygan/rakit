@@ -9,7 +9,7 @@ import dgram from 'dgram';
 import net from 'net';
 import { spawn } from 'child_process';
 import { IpDashClient } from './ipdashClient.js';
-import { buildTaskLaunchPayload, SemaphoreClient, normalizeSemaphoreUrl } from './semaphoreClient.js';
+import { buildTaskLaunchPayload, SemaphoreClient, normalizeSemaphoreUrl, templateAllowsHostLimit } from './semaphoreClient.js';
 import { parseRakitHealthResult, parseRakitOperationResult, parseRakitTaskResult } from './semaphoreResults.js';
 import { encodeRakitCatalog, parseSemaphoreInventory } from './inventory.js';
 
@@ -1158,7 +1158,7 @@ const mapServerRow = (row) => {
   ansibleEnabled,
   inventoryShared: Boolean(row.inventory_shared),
   inventorySyncState,
-  status: row.status ?? 'unknown',
+  status: ansibleEnabled ? row.status ?? 'unknown' : 'unknown',
   groups,
   updates: row.updates_available ?? null,
   securityUpdates: row.security_updates ?? null,
@@ -1643,7 +1643,8 @@ const saveHealthStatus = (serverId, healthStatus, finishedAt) => db.prepare(`
   UPDATE servers
   SET status=CASE WHEN status='maintenance' THEN status ELSE ? END,
       health_checked_at=${resultTimeSql}
-  WHERE id=? AND (health_checked_at IS NULL OR datetime(health_checked_at) <= ${resultTimeSql})
+  WHERE id=? AND ansible_enabled=1
+    AND (health_checked_at IS NULL OR datetime(health_checked_at) <= ${resultTimeSql})
 `).run(healthStatus, finishedAt, serverId, finishedAt);
 
 const saveHealthResult = (serverId, result, finishedAt) => {
@@ -2722,6 +2723,7 @@ app.post('/api/servers', async (req, res) => {
   if (req.body?.cockpitUrl && !cockpitUrl) return res.status(400).json({ error: 'Cockpit URL is invalid' });
   const linkedDeviceId = req.body?.linkedDeviceId == null || req.body.linkedDeviceId === '' ? null : Number(req.body.linkedDeviceId);
   if (linkedDeviceId != null && !db.prepare('SELECT id FROM cabinet_devices WHERE id=?').get(linkedDeviceId)) return res.status(400).json({ error: 'Linked rack device does not exist' });
+  const ansibleEnabled = req.body?.ansibleEnabled !== false;
   const previousInventory = generateManagedInventory();
   try {
     const info = db.prepare(`
@@ -2734,7 +2736,7 @@ app.post('/api/servers', async (req, res) => {
       clampText(req.body?.osVersion, 80) || null, clampText(req.body?.environment, 80) || null,
       clampText(req.body?.role, 120) || null, clampText(req.body?.location, 120) || null,
       cockpitUrl || null, clampText(req.body?.notes, 1000) || null, linkedDeviceId,
-      req.body?.ansibleEnabled === false ? 0 : 1, SERVER_STATUS.has(req.body?.status) ? req.body.status : 'unknown',
+      ansibleEnabled ? 1 : 0, ansibleEnabled && SERVER_STATUS.has(req.body?.status) ? req.body.status : 'unknown',
     );
     replaceServerMemberships(Number(info.lastInsertRowid), req.body?.groupIds);
     recordAudit({ action: 'Server created', objectType: 'server', objectId: info.lastInsertRowid, details: `${name} · ${primaryIp}` });
@@ -2795,11 +2797,13 @@ app.patch('/api/servers/:serverId', async (req, res) => {
     if (value != null && !db.prepare('SELECT id FROM cabinet_devices WHERE id=?').get(value)) return res.status(400).json({ error: 'Linked rack device does not exist' });
     assign('linked_device_id', value);
   }
-  if ('ansibleEnabled' in req.body) assign('ansible_enabled', req.body.ansibleEnabled === false ? 0 : 1);
+  const disablesManagedInventory = 'ansibleEnabled' in req.body && req.body.ansibleEnabled === false;
+  if ('ansibleEnabled' in req.body) assign('ansible_enabled', disablesManagedInventory ? 0 : 1);
   if ('status' in req.body) {
     if (!SERVER_STATUS.has(req.body.status)) return res.status(400).json({ error: 'Invalid server status' });
-    assign('status', req.body.status);
+    if (!disablesManagedInventory) assign('status', req.body.status);
   }
+  if (disablesManagedInventory) assign('status', 'unknown');
   if (!current.inventoryShared) assign('inventory_shared', 1);
   if (!sets.length && !('groupIds' in req.body)) return res.status(400).json({ error: 'Nothing to update' });
   const networkTargetChanged = sets.some((set) => set.startsWith('primary_ip=') || set.startsWith('ssh_port='));
@@ -2856,9 +2860,8 @@ const launchServerAction = async (req, res, action) => {
   const semaphore = createSemaphoreClient(profile);
   try {
     const template = await semaphore.getTemplate(profile.project_id, templateId);
-    const promptParams = template?.task_params?.params ?? {};
-    if (!Object.prototype.hasOwnProperty.call(promptParams, 'limit')) {
-      return res.status(409).json({ error: 'Enable the Ansible Prompt "Limit" in this Semaphore template before running it from Rakit' });
+    if (!templateAllowsHostLimit(template)) {
+      return res.status(409).json({ error: 'Enable the Ansible Prompt "Limit" (allow limit override) in this Semaphore template before running it from Rakit' });
     }
   } catch (error) {
     return res.status(502).json({ error: error?.message || 'Could not verify the Semaphore template' });
@@ -2869,8 +2872,6 @@ const launchServerAction = async (req, res, action) => {
   `).run(server.id, action, profile.id, templateId, server.ansibleAlias);
   const actionId = Number(actionInfo.lastInsertRowid);
   try {
-    // Semaphore <=2.12 reads the legacy top-level value. Newer releases
-    // persist Ansible prompts in params and may otherwise ignore the limit.
     const task = await semaphore.launchTask(
       profile.project_id,
       buildTaskLaunchPayload(templateId, server.ansibleAlias),
