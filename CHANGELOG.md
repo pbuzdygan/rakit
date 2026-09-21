@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.1] - 2026-09-21
+
+### Bug fixes
+- Preserve valid per-server update-check results when another host makes the overall Semaphore task fail.
+- Preserve successful per-server health, package-update and reboot results when another host makes the overall Semaphore task fail.
+- Send per-server Ansible limits in both the current `params.limit` format and the legacy top-level format so **Check now** targets only the selected server across supported Semaphore versions.
+- Require Semaphore templates to explicitly allow limit overrides before Rakit starts any per-server task, and fix the project backup so health checks, updates and reboots cannot silently fan out to the full inventory.
+- Parse copied or decorated multiline Semaphore result records that repeat a timestamp on continuation lines.
+
 ## [1.4.0] - 2026-09-17
 
 ### New features

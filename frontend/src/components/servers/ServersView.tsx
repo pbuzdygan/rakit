@@ -229,10 +229,13 @@ function SortableHeader({ label, sortKey, sort, onSort }: { label: string; sortK
 }
 
 function ServerState({ server }: { server: Server }) {
+  if (!server.ansibleEnabled) {
+    return <span className="ops-state ops-server-signal ops-state--neutral" title="This server is not included in the managed inventory"><span className="ops-status-dot" />Not managed</span>;
+  }
   const tone = server.status === 'online' ? 'ok' : server.status === 'offline' || server.status === 'error' ? 'danger' : server.status === 'maintenance' ? 'warning' : 'neutral';
   const label = server.status === 'online' ? 'Healthy'
     : server.status === 'offline' ? 'Unhealthy'
-      : server.status === 'unknown' ? server.ansibleEnabled ? 'Not checked' : 'Not managed'
+      : server.status === 'unknown' ? 'Not checked'
         : server.status;
   return <span className={`ops-state ops-server-signal ops-state--${tone}`} title="Health status from Rakit/Semaphore automation"><span className="ops-status-dot" />{label}</span>;
 }
