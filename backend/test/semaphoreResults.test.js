@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildTaskLaunchPayload } from '../semaphoreClient.js';
-import { parseRakitTaskResult } from '../semaphoreResults.js';
+import { parseRakitOperationResult, parseRakitTaskResult } from '../semaphoreResults.js';
 
 test('task launch payload carries the selected host in current and legacy Semaphore fields', () => {
   assert.deepEqual(buildTaskLaunchPayload(12, 'buzhulk-dev'), {
@@ -45,4 +45,23 @@ test('parses the structured output endpoint representation', () => {
     host: 'host1', updates: 2, security: 1, rebootRequired: true,
     kernel: '', uptimeSeconds: null,
   });
+});
+
+test('extracts a successful package update from a globally failed task log', () => {
+  const output = `
+1:34:07 PM
+ok: [buzhulk-dev] =>
+1:34:07 PM
+    msg: 'RAKIT_OPERATION_V1={"host": "buzhulk-dev", "action": "update_packages", "changed":
+1:34:07 PM
+        true, "rebootRequired": false}'
+1:34:08 PM
+fatal: [buzpi01]: UNREACHABLE!
+1:34:09 PM
+Failed to run task: exit status 4`;
+
+  assert.deepEqual(parseRakitOperationResult(output, 'buzhulk-dev', 'update_packages'), {
+    host: 'buzhulk-dev', action: 'update_packages', changed: true, rebootRequired: false,
+  });
+  assert.equal(parseRakitOperationResult(output, 'buzpi01', 'update_packages'), null);
 });

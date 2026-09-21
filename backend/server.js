@@ -1634,6 +1634,11 @@ const saveUpdateCheckFailure = (serverId, taskId, finishedAt, checkResult = 'fai
   WHERE server_update_status.checked_at IS NULL OR datetime(excluded.checked_at) >= datetime(server_update_status.checked_at)
 `).run(serverId, finishedAt, checkResult, taskId);
 
+const markActionHostSuccess = (actionId, semaphoreStatus) => {
+  if (semaphoreStatus === 'success') return;
+  db.prepare("UPDATE server_actions SET status='success', error_message=NULL WHERE id=?").run(actionId);
+};
+
 const saveHealthStatus = (serverId, healthStatus, finishedAt) => db.prepare(`
   UPDATE servers
   SET status=CASE WHEN status='maintenance' THEN status ELSE ? END,
@@ -2909,15 +2914,13 @@ const reconcileServerAction = async (actionId) => {
   db.prepare(`UPDATE server_actions SET status=?, started_at=COALESCE(?, started_at), finished_at=COALESCE(?, finished_at), error_message=? WHERE id=?`).run(
     status, startedAt, finishedAt, status === 'failed' ? clampText(task?.message || 'Semaphore task failed', 500) : null, actionId,
   );
-  if (status === 'failed' && actionRow.server_id && actionRow.action === 'health_check') {
-    saveHealthFailure(actionRow.server_id, finishedAt);
-  }
   if (actionRow.action === 'check_updates' && SEMAPHORE_TERMINAL_TASK_STATES.has(status) && actionRow.server_id) {
     const server = getServer(actionRow.server_id);
     const output = await getSemaphoreTaskOutput(client, profile.project_id, actionRow.semaphore_task_id);
     const result = server ? parseRakitTaskResult(output, server.ansibleAlias) : null;
     if (result) {
       saveUpdateCheckResult(server.id, result, actionRow.semaphore_task_id, finishedAt);
+      markActionHostSuccess(actionId, status);
       const suffix = status === 'success' ? '' : ' · result saved before task failure';
       db.prepare('UPDATE server_actions SET result_summary=? WHERE id=?').run(`${result.updates} updates · ${result.security} security${suffix}`, actionId);
     } else if (status === 'success') {
@@ -2928,43 +2931,62 @@ const reconcileServerAction = async (actionId) => {
       db.prepare("UPDATE server_actions SET result_summary='Task failed without a result for this server' WHERE id=?").run(actionId);
     }
   }
-  if (actionRow.action === 'health_check' && status === 'success' && actionRow.server_id) {
+  if (actionRow.action === 'health_check' && SEMAPHORE_TERMINAL_TASK_STATES.has(status) && actionRow.server_id) {
     const server = getServer(actionRow.server_id);
     const output = await getSemaphoreTaskOutput(client, profile.project_id, actionRow.semaphore_task_id);
     const result = server ? parseRakitHealthResult(output, server.ansibleAlias) : null;
     if (result) {
       saveHealthResult(server.id, result, finishedAt);
+      markActionHostSuccess(actionId, status);
       db.prepare('UPDATE server_actions SET result_summary=? WHERE id=?').run(
-        `Online · disk ${result.rootDiskPercent ?? '?'}% · ${result.processorVcpus ?? '?'} vCPU · ${result.memoryMb ?? '?'} MB RAM`, actionId,
+        `Online · disk ${result.rootDiskPercent ?? '?'}% · ${result.processorVcpus ?? '?'} vCPU · ${result.memoryMb ?? '?'} MB RAM${status === 'success' ? '' : ' · result saved before task failure'}`, actionId,
       );
-    } else {
+    } else if (status === 'success') {
       saveHealthStatus(server.id, 'online', finishedAt);
       db.prepare("UPDATE server_actions SET result_summary='Host reached; task succeeded without a RAKIT_HEALTH_V1 record' WHERE id=?").run(actionId);
+    } else {
+      saveHealthFailure(server.id, finishedAt);
+      db.prepare("UPDATE server_actions SET result_summary='Task failed without a health result for this server' WHERE id=?").run(actionId);
     }
   }
-  if (status === 'success' && actionRow.server_id && actionRow.action === 'update_packages') {
+  if (actionRow.action === 'update_packages' && SEMAPHORE_TERMINAL_TASK_STATES.has(status) && actionRow.server_id) {
     const server = getServer(actionRow.server_id);
-    let result = null;
-    try {
-      const output = await getSemaphoreTaskOutput(client, profile.project_id, actionRow.semaphore_task_id);
-      result = server ? parseRakitOperationResult(output, server.ansibleAlias, 'update_packages') : null;
-    } catch (error) {
-      console.warn(`[Semaphore] Could not read successful update task ${actionRow.semaphore_task_id} output:`, error?.message || error);
+    const output = await getSemaphoreTaskOutput(client, profile.project_id, actionRow.semaphore_task_id);
+    const result = server ? parseRakitOperationResult(output, server.ansibleAlias, 'update_packages') : null;
+    if (result || status === 'success') {
+      saveUpdateOperationResult(actionRow.server_id, result, actionRow.semaphore_task_id, finishedAt);
+      if (result) markActionHostSuccess(actionId, status);
+      const operation = result?.changed === false ? 'No package changes' : 'Packages updated';
+      const suffix = status === 'success' ? '' : ' · result saved before task failure';
+      db.prepare('UPDATE server_actions SET result_summary=? WHERE id=?').run(`${operation}; run a new update check${suffix}`, actionId);
+    } else {
+      saveFailedUpdateOperation(actionRow.server_id, actionRow.semaphore_task_id, finishedAt);
+      db.prepare("UPDATE server_actions SET result_summary='Task failed without an update result for this server' WHERE id=?").run(actionId);
     }
-    saveUpdateOperationResult(actionRow.server_id, result, actionRow.semaphore_task_id, finishedAt);
-    db.prepare("UPDATE server_actions SET result_summary='Packages updated; run a new update check' WHERE id=?").run(actionId);
   }
-  if (status === 'failed' && actionRow.server_id && actionRow.action === 'update_packages') {
-    saveFailedUpdateOperation(actionRow.server_id, actionRow.semaphore_task_id, finishedAt);
+  if (actionRow.action === 'reboot' && SEMAPHORE_TERMINAL_TASK_STATES.has(status) && actionRow.server_id) {
+    const server = getServer(actionRow.server_id);
+    const output = await getSemaphoreTaskOutput(client, profile.project_id, actionRow.semaphore_task_id);
+    const result = server ? parseRakitOperationResult(output, server.ansibleAlias, 'reboot') : null;
+    if (result || status === 'success') {
+      db.prepare("UPDATE server_update_status SET reboot_required=0, check_result='stale' WHERE server_id=?").run(actionRow.server_id);
+      if (result) markActionHostSuccess(actionId, status);
+      const suffix = status === 'success' ? '' : ' · result saved before task failure';
+      db.prepare('UPDATE server_actions SET result_summary=? WHERE id=?').run(`Server reboot completed; health data is stale${suffix}`, actionId);
+    } else {
+      db.prepare("UPDATE server_actions SET result_summary='Task failed without a reboot result for this server' WHERE id=?").run(actionId);
+    }
   }
-  if (status === 'success' && actionRow.server_id && actionRow.action === 'reboot') {
-    db.prepare("UPDATE server_update_status SET reboot_required=0, check_result='stale' WHERE server_id=?").run(actionRow.server_id);
-    db.prepare("UPDATE server_actions SET result_summary='Server reboot completed; health data is stale' WHERE id=?").run(actionId);
-  }
+  const reconciledActionRow = db.prepare('SELECT * FROM server_actions WHERE id=?').get(actionId);
   if (SEMAPHORE_TERMINAL_TASK_STATES.has(status) && !SEMAPHORE_TERMINAL_TASK_STATES.has(actionRow.status)) {
-    recordAudit({ action: `Server action finished: ${actionRow.action}`, objectType: 'server_action', objectId: actionId, details: `Semaphore task ${actionRow.semaphore_task_id} · ${status}`, result: status === 'success' ? 'success' : 'error', actor: 'system' });
+    recordAudit({
+      action: `Server action finished: ${actionRow.action}`,
+      objectType: 'server_action', objectId: actionId,
+      details: `Semaphore task ${actionRow.semaphore_task_id} · ${status}`,
+      result: reconciledActionRow.status === 'success' ? 'success' : 'error', actor: 'system',
+    });
   }
-  return { action: mapServerActionRow(db.prepare('SELECT * FROM server_actions WHERE id=?').get(actionId)), server: actionRow.server_id ? getServer(actionRow.server_id) : null };
+  return { action: mapServerActionRow(reconciledActionRow), server: actionRow.server_id ? getServer(actionRow.server_id) : null };
 };
 
 app.post('/api/server-actions/:actionId/refresh', async (req, res) => {
@@ -3821,8 +3843,8 @@ const reconcileActiveSemaphoreActions = async () => {
       SELECT id FROM server_actions
       WHERE semaphore_task_id IS NOT NULL AND (
         status IN ('submitting','queued','running','unknown')
-        OR (status='success' AND action IN ('check_updates','health_check') AND COALESCE(result_summary, '')='')
-        OR (status IN ('failed','stopped') AND action='check_updates' AND COALESCE(result_summary, '')='')
+        OR (status='success' AND action IN ('check_updates','health_check','update_packages','reboot') AND COALESCE(result_summary, '')='')
+        OR (status IN ('failed','stopped') AND action IN ('check_updates','health_check','update_packages','reboot') AND COALESCE(result_summary, '')='')
       )
       ORDER BY requested_at ASC LIMIT 25
     `).all();
