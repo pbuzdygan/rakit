@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.1] - 2026-09-21
+
+### Bug fixes
+- Preserve valid per-server update-check results when another host makes the overall Semaphore task fail.
+- Send per-server Ansible limits in both the current `params.limit` format and the legacy top-level format so **Check now** targets only the selected server across supported Semaphore versions.
+- Parse copied or decorated multiline Semaphore result records that repeat a timestamp on continuation lines.
+
 ## [1.4.0] - 2026-09-17
 
 ### New features

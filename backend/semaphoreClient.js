@@ -56,6 +56,14 @@ export const normalizeSemaphoreUrl = (value) => {
   }
 };
 
+export const buildTaskLaunchPayload = (templateId, targetLimit) => {
+  const limit = String(targetLimit || '').trim();
+  return {
+    template_id: Number(templateId),
+    ...(limit ? { limit, params: { limit: [limit] } } : {}),
+  };
+};
+
 const requestJson = async ({
   url,
   method = 'GET',

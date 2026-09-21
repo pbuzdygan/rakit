@@ -1,4 +1,4 @@
-# Rakit 1.4.0 + Semaphore 2.19 — konfiguracja
+# Rakit 1.4.1 + Semaphore 2.19 — konfiguracja
 
 Ten katalog zawiera backup projektu Semaphore gotowy do użycia przez **Restore Project**:
 

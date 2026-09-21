@@ -9,7 +9,8 @@ import dgram from 'dgram';
 import net from 'net';
 import { spawn } from 'child_process';
 import { IpDashClient } from './ipdashClient.js';
-import { SemaphoreClient, normalizeSemaphoreUrl } from './semaphoreClient.js';
+import { buildTaskLaunchPayload, SemaphoreClient, normalizeSemaphoreUrl } from './semaphoreClient.js';
+import { parseRakitHealthResult, parseRakitOperationResult, parseRakitTaskResult } from './semaphoreResults.js';
 import { encodeRakitCatalog, parseSemaphoreInventory } from './inventory.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -1601,48 +1602,6 @@ const mapServerActionRow = (row) => ({
   source: row.source ?? 'rakit',
 });
 
-const extractMarkerJsonRecords = (text, marker) => {
-  const records = [];
-  let offset = 0;
-  while (offset < text.length) {
-    const markerIndex = text.indexOf(marker, offset);
-    if (markerIndex < 0) break;
-    const start = text.indexOf('{', markerIndex + marker.length);
-    if (start < 0) break;
-    let depth = 0;
-    let inString = false;
-    let escaped = false;
-    let end = -1;
-    for (let index = start; index < text.length; index += 1) {
-      const character = text[index];
-      if (inString) {
-        if (escaped) escaped = false;
-        else if (character === '\\') escaped = true;
-        else if (character === '"') inString = false;
-        continue;
-      }
-      if (character === '"') inString = true;
-      else if (character === '{') depth += 1;
-      else if (character === '}' && --depth === 0) { end = index + 1; break; }
-    }
-    if (end < 0) break;
-    records.push(text.slice(start, end));
-    offset = end;
-  }
-  return records;
-};
-
-const semaphoreOutputText = (output) => {
-  const stripTerminalFormatting = (value) => String(value ?? '')
-    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '');
-  if (typeof output === 'string') return stripTerminalFormatting(output);
-  const entries = Array.isArray(output) ? output : output?.output ?? [];
-  const text = Array.isArray(entries)
-    ? entries.map((entry) => typeof entry === 'string' ? entry : entry?.output ?? '').join('\n')
-    : String(entries ?? '');
-  return stripTerminalFormatting(text);
-};
-
 const getSemaphoreTaskOutput = async (client, projectId, taskId) => {
   try {
     return await client.getTaskRawOutput(projectId, taskId);
@@ -1650,74 +1609,6 @@ const getSemaphoreTaskOutput = async (client, projectId, taskId) => {
     if (![404, 405].includes(Number(error?.status))) throw error;
     return client.getTaskOutput(projectId, taskId);
   }
-};
-
-const parseRakitTaskResult = (output, expectedAlias) => {
-  const records = extractMarkerJsonRecords(semaphoreOutputText(output), 'RAKIT_RESULT_V1=');
-  for (let index = records.length - 1; index >= 0; index -= 1) {
-    for (const candidate of [records[index], records[index].replace(/\\"/g, '"').replace(/\\\\/g, '\\')]) {
-      try {
-      const result = JSON.parse(candidate);
-      if (result.host !== expectedAlias) continue;
-      const updates = Number(result.updates);
-      const security = Number(result.security);
-      if (!Number.isInteger(updates) || updates < 0 || !Number.isInteger(security) || security < 0) continue;
-      return {
-        host: result.host,
-        updates,
-        security,
-        rebootRequired: Boolean(result.rebootRequired),
-        kernel: clampText(result.kernel, 120),
-        uptimeSeconds: Number.isFinite(Number(result.uptimeSeconds)) ? Math.max(0, Math.floor(Number(result.uptimeSeconds))) : null,
-      };
-      } catch { /* Try the normalized callback representation next. */ }
-    }
-  }
-  return null;
-};
-
-const parseRakitHealthResult = (output, expectedAlias) => {
-  const records = extractMarkerJsonRecords(semaphoreOutputText(output), 'RAKIT_HEALTH_V1=');
-  for (let index = records.length - 1; index >= 0; index -= 1) {
-    for (const candidate of [records[index], records[index].replace(/\\"/g, '"').replace(/\\\\/g, '\\')]) {
-      try {
-        const result = JSON.parse(candidate);
-        if (result.host !== expectedAlias) continue;
-        const numeric = (value, maximum) => {
-          const parsed = Number(value);
-          return Number.isFinite(parsed) ? Math.min(maximum, Math.max(0, Math.floor(parsed))) : null;
-        };
-        return {
-          host: result.host,
-          kernel: clampText(result.kernel, 120),
-          uptimeSeconds: numeric(result.uptimeSeconds, Number.MAX_SAFE_INTEGER),
-          memoryMb: numeric(result.memoryMb, 100_000_000),
-          processorVcpus: numeric(result.processorVcpus, 1_000_000),
-          rootDiskPercent: numeric(result.rootDiskPercent, 100),
-        };
-      } catch { /* Try the normalized callback representation next. */ }
-    }
-  }
-  return null;
-};
-
-const parseRakitOperationResult = (output, expectedAlias, expectedAction) => {
-  const records = extractMarkerJsonRecords(semaphoreOutputText(output), 'RAKIT_OPERATION_V1=');
-  for (let index = records.length - 1; index >= 0; index -= 1) {
-    for (const candidate of [records[index], records[index].replace(/\\"/g, '"').replace(/\\\\/g, '\\')]) {
-      try {
-        const result = JSON.parse(candidate);
-        if (result.host !== expectedAlias || result.action !== expectedAction) continue;
-        return {
-          host: result.host,
-          action: result.action,
-          changed: Boolean(result.changed),
-          rebootRequired: result.rebootRequired == null ? null : Boolean(result.rebootRequired),
-        };
-      } catch { /* Try the normalized callback representation next. */ }
-    }
-  }
-  return null;
 };
 
 const resultTimeSql = 'COALESCE(datetime(?), CURRENT_TIMESTAMP)';
@@ -1734,6 +1625,14 @@ const saveUpdateCheckResult = (serverId, result, taskId, finishedAt) => {
     WHERE server_update_status.checked_at IS NULL OR datetime(excluded.checked_at) >= datetime(server_update_status.checked_at)
   `).run(serverId, result.updates, result.security, result.rebootRequired ? 1 : 0, result.kernel || null, result.uptimeSeconds, finishedAt, taskId, JSON.stringify(result));
 };
+
+const saveUpdateCheckFailure = (serverId, taskId, finishedAt, checkResult = 'failed') => db.prepare(`
+  INSERT INTO server_update_status(server_id, checked_at, check_result, source_task_id)
+  VALUES (?, ${resultTimeSql}, ?, ?)
+  ON CONFLICT(server_id) DO UPDATE SET
+    checked_at=excluded.checked_at, check_result=excluded.check_result, source_task_id=excluded.source_task_id
+  WHERE server_update_status.checked_at IS NULL OR datetime(excluded.checked_at) >= datetime(server_update_status.checked_at)
+`).run(serverId, finishedAt, checkResult, taskId);
 
 const saveHealthStatus = (serverId, healthStatus, finishedAt) => db.prepare(`
   UPDATE servers
@@ -2965,7 +2864,12 @@ const launchServerAction = async (req, res, action) => {
   `).run(server.id, action, profile.id, templateId, server.ansibleAlias);
   const actionId = Number(actionInfo.lastInsertRowid);
   try {
-    const task = await semaphore.launchTask(profile.project_id, { template_id: templateId, limit: server.ansibleAlias });
+    // Semaphore <=2.12 reads the legacy top-level value. Newer releases
+    // persist Ansible prompts in params and may otherwise ignore the limit.
+    const task = await semaphore.launchTask(
+      profile.project_id,
+      buildTaskLaunchPayload(templateId, server.ansibleAlias),
+    );
     const taskId = Number(task?.task_id ?? task?.id);
     if (!Number.isInteger(taskId) || taskId < 1) throw new Error('Semaphore did not return a task ID');
     db.prepare("UPDATE server_actions SET semaphore_task_id=?, status='queued' WHERE id=?").run(taskId, actionId);
@@ -3008,20 +2912,20 @@ const reconcileServerAction = async (actionId) => {
   if (status === 'failed' && actionRow.server_id && actionRow.action === 'health_check') {
     saveHealthFailure(actionRow.server_id, finishedAt);
   }
-  if (actionRow.action === 'check_updates' && status === 'success' && actionRow.server_id) {
+  if (actionRow.action === 'check_updates' && SEMAPHORE_TERMINAL_TASK_STATES.has(status) && actionRow.server_id) {
     const server = getServer(actionRow.server_id);
     const output = await getSemaphoreTaskOutput(client, profile.project_id, actionRow.semaphore_task_id);
     const result = server ? parseRakitTaskResult(output, server.ansibleAlias) : null;
     if (result) {
       saveUpdateCheckResult(server.id, result, actionRow.semaphore_task_id, finishedAt);
-      db.prepare('UPDATE server_actions SET result_summary=? WHERE id=?').run(`${result.updates} updates · ${result.security} security`, actionId);
-    } else {
-      db.prepare(`
-          INSERT INTO server_update_status(server_id, checked_at, check_result, source_task_id)
-          VALUES (?, CURRENT_TIMESTAMP, 'partial', ?)
-          ON CONFLICT(server_id) DO UPDATE SET checked_at=CURRENT_TIMESTAMP, check_result='partial', source_task_id=excluded.source_task_id
-      `).run(server.id, actionRow.semaphore_task_id);
+      const suffix = status === 'success' ? '' : ' · result saved before task failure';
+      db.prepare('UPDATE server_actions SET result_summary=? WHERE id=?').run(`${result.updates} updates · ${result.security} security${suffix}`, actionId);
+    } else if (status === 'success') {
+      saveUpdateCheckFailure(server.id, actionRow.semaphore_task_id, finishedAt, 'partial');
       db.prepare("UPDATE server_actions SET result_summary='Task succeeded without a RAKIT_RESULT_V1 record' WHERE id=?").run(actionId);
+    } else {
+      saveUpdateCheckFailure(server.id, actionRow.semaphore_task_id, finishedAt);
+      db.prepare("UPDATE server_actions SET result_summary='Task failed without a result for this server' WHERE id=?").run(actionId);
     }
   }
   if (actionRow.action === 'health_check' && status === 'success' && actionRow.server_id) {
@@ -3918,6 +3822,7 @@ const reconcileActiveSemaphoreActions = async () => {
       WHERE semaphore_task_id IS NOT NULL AND (
         status IN ('submitting','queued','running','unknown')
         OR (status='success' AND action IN ('check_updates','health_check') AND COALESCE(result_summary, '')='')
+        OR (status IN ('failed','stopped') AND action='check_updates' AND COALESCE(result_summary, '')='')
       )
       ORDER BY requested_at ASC LIMIT 25
     `).all();
@@ -4009,6 +3914,7 @@ const importScheduledSemaphoreTask = async (profile, client, task) => {
       if (hostResultImported) {
         importedHosts += 1;
       } else if (status !== 'success' && scheduledTaskTargetsServer(task, server)) {
+        if (action === 'check_updates') saveUpdateCheckFailure(server.id, taskId, finishedAt);
         if (action === 'health_check') saveHealthFailure(server.id, finishedAt);
         if (action === 'update_packages' && status === 'failed') saveFailedUpdateOperation(server.id, taskId, finishedAt);
         insertScheduledServerAction(profile, task, server, action, clampText(task?.message || 'Scheduled Semaphore task failed', 500), status);
