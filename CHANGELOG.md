@@ -5,6 +5,8 @@ All notable changes to this project will be documented in this file.
 ## [1.4.2] - Unreleased
 
 ### Bug fixes
+- Update vulnerable backend dependencies (`brace-expansion`, `proxy-addr`, `qs`) and override ExcelJS's UUID dependency with patched CommonJS-compatible `uuid` 11.1.1, preserving ExcelJS 4.4 and XLSX export support.
+- Update frontend source-map handling and override `postcss-selector-parser` with patched 7.1.6; the unpatched `braces` advisory in Tailwind 3's build dependencies remains unresolved.
 - Import completed manual Semaphore tasks from the four mapped templates, alongside scheduled tasks, without duplicating tasks launched by Rakit; refresh the open server inspector for external results.
 - Preserve newer package-check results when importing older package-update or reboot history.
 - Detect sudo-rs before privilege escalation and use executable `/usr/bin/sudo.ws` when available, retaining password-based sudo and explicit Ansible executable overrides for update checks, package updates and reboots.
