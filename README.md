@@ -19,6 +19,24 @@
 - ✅ Secured with encryption key
 
 ---
+## Settings
+
+Open **Settings** using the gear button at the bottom of the sidebar, including
+when the sidebar is collapsed. On mobile, open the navigation menu first.
+
+- **General**: change the theme or lock the current session.
+- **Modules**: show or hide Racks, Servers, IP Addressing, Port Map and Wake on LAN.
+  Choices apply to the sidebar and Overview and are saved automatically in this
+  browser. All modules are visible by default; **Restore defaults** shows them all.
+  Hiding the active module opens Overview. Module data, integrations and scheduled
+  tasks remain available in the backend.
+- **About**: see the current version, release channel, latest checked release and
+  update status, with links to GitHub. Release checks run in the background every
+  six hours after sign-in, even when Settings is closed.
+
+Overview, Audit Log and Settings are always available. Module preferences control
+navigation visibility; they are not access permissions or instance-wide settings.
+
 ## Demo / Screenshots
 
 ### Main UI
@@ -161,6 +179,8 @@ openssl rand -base64 32
 After a correct PIN, Rakit creates a time-limited server session in an `HttpOnly`, `SameSite=Strict` cookie. Repeated invalid PIN attempts are temporarily blocked. When Rakit is behind an HTTPS reverse proxy, set `APP_COOKIE_SECURE=true`; optionally set `TRUST_PROXY=true` and `APP_ORIGIN=https://rakit.example.com`.
 
 ### Install Rakit as a PWA
+
+Use a current browser. The Tailwind CSS 4 frontend requires Safari 16.4+, Chrome 111+ or Firefox 128+.
 
 PWA installation and the service worker require a secure browser context. Publish Rakit through an HTTPS reverse proxy and open that HTTPS address on the target device. `http://localhost` and `http://127.0.0.1` are accepted for local development, but a plain LAN address such as `http://192.168.1.20:8011` is not installable as a PWA.
 

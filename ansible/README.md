@@ -20,4 +20,6 @@ All templates must use the dedicated inventory managed by Rakit. Enable the **Li
 
 The check playbook currently targets Debian-family systems using APT. Unsupported operating systems fail explicitly instead of reporting a misleading zero update count.
 
-The update check, package upgrade and reboot playbooks explicitly use `sudo` to become `root` and verify the effective UID before making changes. Configure the inventory's Become Key in Semaphore, or provide a tested `NOPASSWD` rule for the dedicated SSH account.
+The update check, package upgrade and reboot playbooks explicitly use `sudo` to become `root` and verify the effective UID before gathering facts or making changes. Configure the inventory's Sudo Credentials / Become Key in Semaphore for password-based escalation.
+
+Copy the entire `ansible/` directory, including `playbooks/tasks/`. The shared preflight detects `sudo-rs` without escalation and uses `/usr/bin/sudo.ws` when it is available and executable, avoiding incompatible password prompts without changing system alternatives or sudoers. Explicit `ansible_become_exe` and `ansible_sudo_exe` variables take precedence over detection. If classic sudo is absent, the default sudo remains in use and the log explains how to diagnose compatibility. See [the setup guide](../semaphore/SETUP.pl.md#diagnostyka-timeout-przy-sudo-z-hasłem) for verification and alternatives.

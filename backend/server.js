@@ -12,6 +12,7 @@ import { IpDashClient } from './ipdashClient.js';
 import { buildTaskLaunchPayload, SemaphoreClient, normalizeSemaphoreUrl, templateAllowsHostLimit } from './semaphoreClient.js';
 import { parseRakitHealthResult, parseRakitOperationResult, parseRakitTaskResult } from './semaphoreResults.js';
 import { encodeRakitCatalog, parseSemaphoreInventory } from './inventory.js';
+import { createSemaphoreTaskImporter, describeSemaphoreTaskImport } from './semaphoreTaskImport.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1668,9 +1669,11 @@ const saveUpdateOperationResult = (serverId, result, taskId, finishedAt) => {
     INSERT INTO server_update_status(server_id, updates_available, security_updates, reboot_required, check_result, last_update_at, last_update_result, last_update_task_id)
     VALUES (?, NULL, NULL, ?, 'stale', ${resultTimeSql}, 'success', ?)
     ON CONFLICT(server_id) DO UPDATE SET
-      updates_available=NULL, security_updates=NULL,
-      reboot_required=excluded.reboot_required,
-      check_result='stale', last_update_at=excluded.last_update_at,
+      updates_available=CASE WHEN server_update_status.checked_at > excluded.last_update_at THEN server_update_status.updates_available ELSE NULL END,
+      security_updates=CASE WHEN server_update_status.checked_at > excluded.last_update_at THEN server_update_status.security_updates ELSE NULL END,
+      reboot_required=CASE WHEN server_update_status.checked_at > excluded.last_update_at THEN server_update_status.reboot_required ELSE excluded.reboot_required END,
+      check_result=CASE WHEN server_update_status.checked_at > excluded.last_update_at THEN server_update_status.check_result ELSE 'stale' END,
+      last_update_at=excluded.last_update_at,
       last_update_result='success', last_update_task_id=excluded.last_update_task_id
     WHERE server_update_status.last_update_at IS NULL OR datetime(excluded.last_update_at) >= datetime(server_update_status.last_update_at)
   `).run(serverId, result?.rebootRequired == null ? null : result.rebootRequired ? 1 : 0, finishedAt, taskId);
@@ -3831,7 +3834,7 @@ const server = app.listen(PORT, ()=> {
   runWolSchedules().catch((error) => console.warn('[WOL] Schedule runner failed', error?.message || error));
   refreshServerNetworkStatus().catch((error) => console.warn('[Network] Server probe failed', error?.message || error));
   reconcileActiveSemaphoreActions().catch((error) => console.warn('[Semaphore] Task reconciliation failed', error?.message || error));
-  reconcileScheduledSemaphoreTasks().catch((error) => console.warn('[Semaphore] Scheduled task import failed', error?.message || error));
+  reconcileExternalSemaphoreTasks().catch((error) => console.warn('[Semaphore] External task import failed', error?.message || error));
   reconcileSharedSemaphoreInventory().catch((error) => console.warn('[Semaphore] Shared inventory refresh failed', error?.message || error));
 });
 
@@ -3858,126 +3861,37 @@ const reconcileActiveSemaphoreActions = async () => {
   }
 };
 
-let semaphoreScheduleImportRunning = false;
+let semaphoreExternalImportRunning = false;
 
-const scheduledActionForTask = (profile, task) => {
-  const templateId = Number(task?.template_id ?? task?.templateId);
-  if (templateId === Number(profile.check_template_id)) return 'check_updates';
-  if (templateId === Number(profile.update_template_id)) return 'update_packages';
-  if (templateId === Number(profile.reboot_template_id)) return 'reboot';
-  if (templateId === Number(profile.health_template_id)) return 'health_check';
-  return null;
-};
+const importExternalSemaphoreTask = createSemaphoreTaskImporter({
+  db, getTaskOutput: getSemaphoreTaskOutput, saveUpdateCheckResult, saveHealthResult,
+  saveUpdateOperationResult, saveUpdateCheckFailure, saveHealthFailure,
+  saveFailedUpdateOperation, recordAudit,
+});
 
-const insertScheduledServerAction = (profile, task, server, action, summary, status = 'success') => {
-  db.prepare(`
-    INSERT INTO server_actions(
-      server_id, action, semaphore_profile_id, semaphore_template_id, semaphore_task_id,
-      target_limit, status, requested_at, started_at, finished_at, result_summary, source
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(datetime(?), CURRENT_TIMESTAMP), datetime(?), datetime(?), ?, 'schedule')
-  `).run(
-    server.id, action, profile.id, Number(task.template_id ?? task.templateId), Number(task.id),
-    server.ansible_alias, status, task.created || null, task.start || task.started || null,
-    task.end || task.finished || null, summary,
-  );
-};
-
-const scheduledTaskTargetsServer = (task, server) => {
-  const rawLimit = task?.params?.limit ?? task?.limit;
-  const limits = (Array.isArray(rawLimit) ? rawLimit : String(rawLimit || '').split(','))
-    .map((value) => String(value).trim()).filter(Boolean);
-  return !limits.length || limits.includes('all') || limits.includes(server.ansible_alias);
-};
-
-const importScheduledSemaphoreTask = async (profile, client, task) => {
-  const taskId = Number(task?.id);
-  const scheduleId = Number(task?.schedule_id ?? task?.scheduleId);
-  const action = scheduledActionForTask(profile, task);
-  const status = mapSemaphoreTaskStatus(task?.status);
-  if (!Number.isInteger(taskId) || taskId < 1 || !Number.isInteger(scheduleId) || scheduleId < 1 || !action
-    || !SEMAPHORE_TERMINAL_TASK_STATES.has(status)) return;
-  if (db.prepare('SELECT 1 FROM semaphore_task_imports WHERE semaphore_profile_id=? AND semaphore_task_id=?').get(profile.id, taskId)) return;
-
-  const output = await getSemaphoreTaskOutput(client, profile.project_id, taskId);
-  const finishedAt = task?.end || task?.finished || task?.start || task?.created || new Date().toISOString();
-  const servers = db.prepare('SELECT * FROM servers WHERE ansible_enabled=1').all();
-  const imported = db.transaction(() => {
-    let importedHosts = 0;
-    for (const server of servers) {
-      let hostResultImported = false;
-      if (action === 'check_updates') {
-        const result = parseRakitTaskResult(output, server.ansible_alias);
-        if (result) {
-          saveUpdateCheckResult(server.id, result, taskId, finishedAt);
-          insertScheduledServerAction(profile, task, server, action, `${result.updates} updates · ${result.security} security`);
-          hostResultImported = true;
-        }
-      } else if (action === 'health_check') {
-        const result = parseRakitHealthResult(output, server.ansible_alias);
-        if (result) {
-          saveHealthResult(server.id, result, finishedAt);
-          insertScheduledServerAction(profile, task, server, action, `Online · disk ${result.rootDiskPercent ?? '?'}% · ${result.processorVcpus ?? '?'} vCPU · ${result.memoryMb ?? '?'} MB RAM`);
-          hostResultImported = true;
-        }
-      } else if (action === 'update_packages') {
-        const result = parseRakitOperationResult(output, server.ansible_alias, action);
-        if (result) {
-          saveUpdateOperationResult(server.id, result, taskId, finishedAt);
-          insertScheduledServerAction(profile, task, server, action, `${result.changed ? 'Packages updated' : 'No package changes'} · ${result.rebootRequired ? 'reboot required' : 'no reboot required'}`);
-          hostResultImported = true;
-        }
-      } else if (action === 'reboot') {
-        const result = parseRakitOperationResult(output, server.ansible_alias, action);
-        if (result) {
-          db.prepare("UPDATE server_update_status SET reboot_required=0, check_result='stale' WHERE server_id=?").run(server.id);
-          insertScheduledServerAction(profile, task, server, action, 'Server reboot completed; health data is stale');
-          hostResultImported = true;
-        }
-      }
-      if (hostResultImported) {
-        importedHosts += 1;
-      } else if (status !== 'success' && scheduledTaskTargetsServer(task, server)) {
-        if (action === 'check_updates') saveUpdateCheckFailure(server.id, taskId, finishedAt);
-        if (action === 'health_check') saveHealthFailure(server.id, finishedAt);
-        if (action === 'update_packages' && status === 'failed') saveFailedUpdateOperation(server.id, taskId, finishedAt);
-        insertScheduledServerAction(profile, task, server, action, clampText(task?.message || 'Scheduled Semaphore task failed', 500), status);
-        importedHosts += 1;
-      }
-    }
-    db.prepare(`
-      INSERT INTO semaphore_task_imports(semaphore_profile_id, semaphore_task_id, schedule_id, semaphore_template_id, status)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(profile.id, taskId, scheduleId, Number(task.template_id ?? task.templateId), status);
-    if (importedHosts) recordAudit({
-      action: `Scheduled server action imported: ${action}`,
-      objectType: 'semaphore_task', objectId: taskId,
-      details: `${importedHosts} host${importedHosts === 1 ? '' : 's'} · schedule ${scheduleId}`,
-      actor: 'system',
-    });
-  });
-  imported();
-};
-
-const reconcileScheduledSemaphoreTasks = async () => {
-  if (semaphoreScheduleImportRunning || encryptionKeyMismatch || !APP_ENC_KEY) return;
+const reconcileExternalSemaphoreTasks = async () => {
+  if (semaphoreExternalImportRunning || encryptionKeyMismatch || !APP_ENC_KEY) return;
   const profile = getSemaphoreProfileRow();
   if (!profile) return;
-  semaphoreScheduleImportRunning = true;
+  semaphoreExternalImportRunning = true;
   try {
     const client = createSemaphoreClient(profile);
     const payload = await client.listRecentTasks(profile.project_id, 200);
     const tasks = (Array.isArray(payload) ? payload : payload?.tasks ?? [])
-      .filter((task) => Number(task?.schedule_id ?? task?.scheduleId) > 0)
+      .filter((task) => describeSemaphoreTaskImport(profile, task))
       .sort((left, right) => Number(left.id) - Number(right.id));
-    for (const task of tasks) await importScheduledSemaphoreTask(profile, client, task);
+    for (const task of tasks) {
+      try { await importExternalSemaphoreTask(profile, client, task); }
+      catch (error) { console.warn(`[Semaphore] Could not import task ${task.id}:`, error?.message || error); }
+    }
   } finally {
-    semaphoreScheduleImportRunning = false;
+    semaphoreExternalImportRunning = false;
   }
 };
 
 const semaphoreReconcileTimer = setInterval(() => {
   reconcileActiveSemaphoreActions().catch((error) => console.warn('[Semaphore] Task reconciliation failed', error?.message || error));
-  reconcileScheduledSemaphoreTasks().catch((error) => console.warn('[Semaphore] Scheduled task import failed', error?.message || error));
+  reconcileExternalSemaphoreTasks().catch((error) => console.warn('[Semaphore] External task import failed', error?.message || error));
 }, 10_000);
 semaphoreReconcileTimer.unref();
 

@@ -456,7 +456,7 @@ Wybór identyfikatorów odbywa się z danych odkrytych przez API, nie przez ręc
 
 ## 10. Harmonogramy
 
-Harmonogramy pozostają konfigurowane w Semaphore. Rakit ich nie duplikuje, ale okresowo importuje zakończone zadania posiadające `schedule_id` i przypisany template.
+Harmonogramy pozostają konfigurowane w Semaphore. Rakit ich nie duplikuje, ale okresowo importuje zakończone zadania z czterech przypisanych templates — zarówno harmonogramowe, jak i uruchomione ręcznie w Semaphore.
 
 Pierwszy zalecany harmonogram:
 
@@ -467,7 +467,9 @@ Limit: rakit_managed
 Timezone: Europe/Warsaw
 ```
 
-Backend pobiera ostatnie taski co 10 sekund, filtruje wyłącznie zadania harmonogramowe i rozpisuje znaczniki `RAKIT_RESULT_V1`, `RAKIT_HEALTH_V1` oraz `RAKIT_OPERATION_V1` na wszystkie pasujące hosty. Identyfikator taska jest zapisywany jako zaimportowany, więc wynik nie jest przetwarzany ponownie. Zadania uruchomione ręcznie bezpośrednio w Semaphore nie zmieniają stanu Rakita.
+Backend pobiera ostatnie 200 tasków co 10 sekund i rozpisuje znaczniki `RAKIT_RESULT_V1`, `RAKIT_HEALTH_V1` oraz `RAKIT_OPERATION_V1` na pasujące zarządzane hosty. Import obejmuje tylko zakończone zadania z templates przypisanych w aktywnym profilu. Identyfikator taska jest zapisywany jako zaimportowany, więc wynik nie jest przetwarzany ponownie. Zadania uruchomione przez Rakit pozostają obsługiwane przez własny mechanizm reconciliation i nie są powielane. Historia oznacza zadania harmonogramowe jako `schedule`, a ręczne zadania z Semaphore jako `semaphore`; w istniejącej tabeli importów `schedule_id = 0` oznacza brak harmonogramu. Wyniki używają czasu zakończenia zadania, a starsze wpisy nie zastępują nowszych kontroli pakietów.
+
+Lista serwerów i otwarty inspector odświeżają się co 30 sekund. `Check updates` aktualizuje liczniki Updates/Security, Reboot i czas kontroli pakietów; tylko `Server health` aktualizuje `Last health`. `Last update` oznacza faktyczną operację aktualizacji pakietów, a nie kontrolę dostępnych aktualizacji.
 
 ## 11. Stany błędów widoczne w UI
 

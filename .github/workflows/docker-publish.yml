@@ -72,6 +72,7 @@ jobs:
       - name: Test backend and build frontend
         run: |
           npm test --prefix backend
+          npm test --prefix frontend
           npm run build --prefix frontend
 
       - name: Audit npm dependencies

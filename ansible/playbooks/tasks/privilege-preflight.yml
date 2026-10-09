@@ -1,0 +1,59 @@
+---
+# Run detection as the SSH user, before any module needs a sudo password.
+- name: Detect the default sudo implementation
+  ansible.builtin.command: sudo --version
+  become: false
+  register: rakit_sudo_version
+  changed_when: false
+  check_mode: false
+  when:
+    - ansible_become_exe is not defined
+    - ansible_sudo_exe is not defined
+
+- name: Locate classic sudo on sudo-rs hosts
+  ansible.builtin.stat:
+    path: /usr/bin/sudo.ws
+    get_checksum: false
+    get_mime: false
+    get_attributes: false
+  become: false
+  register: rakit_classic_sudo
+  when:
+    - not (rakit_sudo_version.skipped | default(false))
+    - "'sudo-rs' in (rakit_sudo_version.stdout | default(''))"
+
+- name: Use classic sudo for Ansible prompt compatibility
+  ansible.builtin.set_fact:
+    ansible_become_exe: /usr/bin/sudo.ws
+  when:
+    - rakit_classic_sudo.stat.exists | default(false)
+    - rakit_classic_sudo.stat.isreg | default(false)
+    - rakit_classic_sudo.stat.executable | default(false)
+
+- name: Explain sudo-rs compatibility when classic sudo is unavailable
+  ansible.builtin.debug:
+    msg: >-
+      This host uses sudo-rs and /usr/bin/sudo.ws is unavailable. If password-based
+      become times out waiting for the prompt, check the Ansible sudo-rs support
+      in the Semaphore runner or install classic sudo on the host. See
+      semaphore/SETUP.pl.md. NOPASSWD is not required to resolve prompt compatibility.
+  when:
+    - not (rakit_sudo_version.skipped | default(false))
+    - "'sudo-rs' in (rakit_sudo_version.stdout | default(''))"
+    - not (rakit_classic_sudo.stat.executable | default(false))
+
+- name: Verify privilege escalation to root
+  ansible.builtin.command: /usr/bin/id -u
+  register: rakit_effective_uid
+  changed_when: false
+  check_mode: false
+  become: true
+
+- name: Require effective root privileges
+  ansible.builtin.assert:
+    that:
+      - rakit_effective_uid.stdout | trim == '0'
+    fail_msg: >-
+      Sudo privilege escalation is not active. Configure the inventory Sudo
+      Credentials / Become Key in Semaphore. For a prompt timeout on sudo-rs,
+      follow the compatibility checks in semaphore/SETUP.pl.md.

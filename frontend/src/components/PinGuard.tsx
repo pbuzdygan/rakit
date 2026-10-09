@@ -112,7 +112,7 @@ export function PinGuard() {
     <AnimatePresence>
       {!pinOk && (
         <motion.div
-          className="rakit-pin-backdrop fixed inset-0 z-[200] flex items-center justify-center bg-black/40 backdrop-blur-sm"
+          className="rakit-pin-backdrop fixed inset-0 z-[200] flex items-center justify-center bg-black/40 backdrop-blur-xs"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}

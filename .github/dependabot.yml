@@ -20,8 +20,10 @@ updates:
     ignore:
       # These major releases require coordinated framework/config migrations.
       # Keep receiving patch and minor fixes without opening PRs that mix
-      # incompatible React generations or break the Tailwind PostCSS setup.
+      # incompatible React generations or break the coordinated Tailwind/Vite setup.
       - dependency-name: tailwindcss
+        update-types: [version-update:semver-major]
+      - dependency-name: "@tailwindcss/vite"
         update-types: [version-update:semver-major]
       - dependency-name: react
         update-types: [version-update:semver-major]

@@ -38,6 +38,7 @@ jobs:
           npm ci --prefix backend --ignore-scripts --no-audit --no-fund
           npm ci --prefix frontend --ignore-scripts --no-audit --no-fund
           npm test --prefix backend
+          npm test --prefix frontend
           npm run build --prefix frontend
 
       - name: Audit npm dependencies

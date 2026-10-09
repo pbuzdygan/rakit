@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAppStore } from './store';
+import { useVersionInfo } from './hooks/useVersionInfo';
 import { PinGuard } from './components/PinGuard';
 import { ExportModal } from './components/modals/ExportModal';
 import { SettingsModal } from './components/modals/SettingsModal';
@@ -25,6 +26,7 @@ export default function App() {
   const theme = useAppStore((s) => s.theme);
   const view = useAppStore((s) => s.view);
   const pinSession = useAppStore((s) => s.pinSession);
+  useVersionInfo(pinSession);
   const sidebarCollapsed = useAppStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useAppStore((s) => s.toggleSidebar);
 

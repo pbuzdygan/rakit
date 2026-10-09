@@ -30,7 +30,8 @@ The app is split into:
 - **Frontend**
   - React + TypeScript
   - Vite bundler
-  - Tailwind CSS + custom design system in CSS
+  - Tailwind CSS 4 through `@tailwindcss/vite` + custom design system in CSS
+  - `src/styles/global.css` imports Tailwind, declares source paths and explicitly loads `tailwind.config.cjs` for existing theme tokens. Vendor prefixing is handled by the Tailwind Vite integration; a separate Tailwind PostCSS plugin is not used.
   - React Query (@tanstack/react-query) for data fetching + caching
   - Zustand for global app state and UI modals
   - @dnd-kit for drag‑and‑drop device ordering within a rack
