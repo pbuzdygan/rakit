@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [1.4.2] - Unreleased
 
+### New features
+- Add persistent browser preferences for showing or hiding Racks, Servers, IP Addressing, Port Map and Wake on LAN, with matching Overview shortcuts and safe navigation to Overview when hiding the active module.
+- Expand Settings with General, Modules and About tabs, restore defaults, keyboard navigation and an always-available sidebar button, including collapsed and mobile navigation.
+
 ### Bug fixes
 - Update vulnerable backend dependencies (`brace-expansion`, `proxy-addr`, `qs`) and override ExcelJS's UUID dependency with patched CommonJS-compatible `uuid` 11.1.1, preserving ExcelJS 4.4 and XLSX export support.
 - Migrate the frontend to Tailwind CSS 4 with its official Vite plugin, removing the vulnerable `braces` dependency chain and obsolete PostCSS overrides while preserving Rakit theme tokens and form defaults.
@@ -13,6 +17,7 @@ All notable changes to this project will be documented in this file.
 - Run the root privilege preflight before gathering facts so sudo failures occur at the explicit escalation check.
 
 ### Improvements
+- Move build and release information into Settings → About, retain background metadata/time-zone loading and six-hour release checks, and distinguish unavailable checks from up-to-date builds without mixing stable and development releases.
 - Document sudo-rs prompt timeout diagnosis, password-based verification and the distinction between password authentication and sudo command permissions.
 
 ## [1.4.1] - 2026-09-21

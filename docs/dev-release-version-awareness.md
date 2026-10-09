@@ -238,6 +238,14 @@ Frontend przechowuje bieżący kanał oraz numer wersji w globalnym store i wyko
 
 ### 4.2 Komponent `VersionIndicator`
 
+**Aktualizacja 1.4.2:** w bieżącej implementacji `App.tsx` uruchamia
+`hooks/useVersionInfo.ts` po zalogowaniu. Hook ładuje również strefę czasową z
+`/api/meta` i sprawdza wydania co sześć godzin niezależnie od otwarcia ustawień.
+`versionInfo.ts` wybiera wydanie wyłącznie z właściwego kanału. Informacje są
+pokazywane w **Settings → About**, a przy Settings pojawia się kropka, gdy jest
+aktualizacja. `VersionIndicator` pozostał jedynie prezentacją dla starego nagłówka;
+poniższy przykład opisuje wcześniejszą implementację.
+
 Kod odpowiedzialny za Version awareness: pobiera `/api/meta`, ustawia kanał, a następnie odpytuje GitHub API o releasy i filtruje je według kanału.
 
 ```typescript

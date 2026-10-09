@@ -4,15 +4,11 @@ import { Api } from '../api';
 import { useAppStore, type View } from '../store';
 import { OperationsIcon, type OperationsIconName } from './OperationsIcon';
 import { IpDashProfileMenu } from './ipdash/IpDashProfileMenu';
-import { VersionIndicator } from './VersionIndicator';
+import { MODULES, isViewVisible } from '../modules';
 
 const NAV_ITEMS: Array<{ id: View; label: string; icon: OperationsIconName }> = [
   { id: 'overview', label: 'Overview', icon: 'overview' },
-  { id: 'cabinet', label: 'Racks', icon: 'rack' },
-  { id: 'servers', label: 'Servers', icon: 'server' },
-  { id: 'ipdash', label: 'IP Addressing', icon: 'network' },
-  { id: 'porthub', label: 'Port Map', icon: 'ports' },
-  { id: 'wol', label: 'Wake on LAN', icon: 'power' },
+  ...MODULES,
   { id: 'audit', label: 'Audit Log', icon: 'audit' },
 ];
 
@@ -31,6 +27,12 @@ export function OperationsSidebar() {
   const setView = useAppStore((s) => s.setView);
   const collapsed = useAppStore((s) => s.sidebarCollapsed);
   const connection = useAppStore((s) => s.ipDashConnectionStatus);
+  const visibility = useAppStore((s) => s.moduleVisibility);
+  const updateAvailable = useAppStore((s) => s.updateAvailable);
+  const openSettings = () => {
+    useAppStore.getState().openModal('settings');
+    if (window.matchMedia('(max-width: 820px)').matches) useAppStore.setState({ sidebarCollapsed: true });
+  };
 
   const selectView = (nextView: View) => {
     setView(nextView);
@@ -48,13 +50,14 @@ export function OperationsSidebar() {
 
       <nav className="ops-nav" aria-label="Primary navigation">
         <div className="ops-nav-label">Workspace</div>
-        {NAV_ITEMS.map((item) => (
+        {NAV_ITEMS.filter((item) => isViewVisible(item.id, visibility)).map((item) => (
           <button
             key={item.id}
             type="button"
             className={`ops-nav-item ${view === item.id ? 'is-active' : ''}`}
             onClick={() => selectView(item.id)}
             title={collapsed ? item.label : undefined}
+            aria-label={item.label}
           >
             <OperationsIcon name={item.icon} />
             <span className="ops-nav-text">{item.label}</span>
@@ -67,7 +70,11 @@ export function OperationsSidebar() {
           <span className={`ops-status-dot ${connection.status === 'inactive' ? 'is-danger' : ''}`} />
           <span>{connection.status === 'active' ? 'UniFi connected' : 'System ready'}</span>
         </div>
-        <VersionIndicator compact />
+        <button type="button" className="ops-nav-item ops-sidebar-settings" onClick={openSettings} aria-label="Settings" title={updateAvailable ? 'Settings · Update available' : 'Settings'}>
+          <OperationsIcon name="settings" />
+          <span className="ops-nav-text">Settings</span>
+          {updateAvailable ? <span className="ops-settings-update-dot" aria-label="Update available" /> : null}
+        </button>
       </div>
     </aside>
   );

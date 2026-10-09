@@ -900,3 +900,40 @@ button { color: inherit; }
   .ops-rack-device-label.has-meta { padding-right: 0; border-right: 0; }
   .ops-ip-grid { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Settings stays available even when every optional workspace is hidden. */
+.ops-sidebar.is-collapsed .ops-sidebar-footer { display: block; padding: 10px 8px; }
+.ops-sidebar.is-collapsed .ops-system-state { display: none; }
+.ops-sidebar-settings { position: relative; margin-top: 8px; }
+.ops-settings-update-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ops-accent); margin-left: auto; }
+.ops-sidebar.is-collapsed .ops-settings-update-dot { position: absolute; top: 8px; right: 8px; }
+.ops-overview-layout--no-capacity .ops-overview-activity { grid-column: 1 / -1; }
+.ops-settings-tabs { display: flex; gap: 4px; padding: 4px; border: 1px solid var(--ops-line); border-radius: 8px; margin-bottom: 22px; }
+.ops-settings-tabs button { flex: 1; min-height: 40px; border-radius: 5px; color: var(--ops-muted); font-size: 13px; font-weight: 600; }
+.ops-settings-tabs button[aria-selected="true"] { color: var(--ops-text); background: var(--ops-panel); box-shadow: 0 1px 4px rgba(0,0,0,.12); }
+.ops-settings-panel { min-height: 260px; }
+.ops-settings-panel section + section { margin-top: 28px; }
+.ops-settings-panel h3 { font-size: 14px; font-weight: 600; color: var(--ops-text); margin: 0 0 8px; }
+.ops-settings-panel p { font-size: 12px; line-height: 1.7; color: var(--ops-muted); margin: 0 0 16px; }
+.ops-settings-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; font-size: 12px; }
+.ops-settings-modules { margin: 18px 0; border: 1px solid var(--ops-line); border-radius: 8px; overflow: hidden; }
+.ops-settings-module { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 10px 14px; cursor: pointer; font-size: 13px; color: var(--ops-text); }
+.ops-settings-module + .ops-settings-module { border-top: 1px solid var(--ops-line); }
+.ops-settings-module > .ops-icon { color: var(--ops-muted); }
+.ops-settings-switch { appearance: none; flex: 0 0 36px; width: 36px; height: 22px; border: 1px solid var(--ops-line); border-radius: 20px; background: var(--ops-muted); margin-left: auto; cursor: pointer; padding: 2px; }
+.ops-settings-switch::before { content: ''; display: block; width: 16px; height: 16px; border-radius: 50%; background: white; transition: transform .15s ease; }
+.ops-settings-switch:checked { background: var(--ops-accent); border-color: var(--ops-accent); }
+.ops-settings-switch:checked::before { transform: translateX(14px); }
+.ops-settings button:focus-visible, .ops-settings input:focus-visible, .ops-settings a:focus-visible, .ops-sidebar-settings:focus-visible { outline: 2px solid var(--ops-accent); outline-offset: 3px; }
+.ops-settings-details { margin: 20px 0; font-size: 13px; }
+.ops-settings-details > div { display: flex; justify-content: space-between; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--ops-line); }
+.ops-settings-details dt { color: var(--ops-muted); }
+.ops-settings-details dd { margin: 0; color: var(--ops-text); text-align: right; overflow-wrap: anywhere; min-width: 0; }
+.ops-settings-panel .ops-settings-update-message { color: var(--ops-accent); }
+.ops-settings-links { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; font-size: 12px; }
+.ops-settings-links > a:not(.ops-button) { color: var(--ops-muted); text-decoration: underline; }
+.ops-settings-footer { display: flex; justify-content: flex-end; border-top: 1px solid var(--ops-line); padding-top: 18px; margin-top: 24px; }
+@media (max-width: 820px) {
+  .ops-sidebar.is-collapsed .ops-system-state { display: flex; }
+  .ops-sidebar.is-collapsed .ops-settings-update-dot { position: static; }
+}

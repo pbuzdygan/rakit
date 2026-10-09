@@ -1,4 +1,8 @@
 import { create } from 'zustand';
+import { compareVersions } from './versionInfo.ts';
+export { compareVersions } from './versionInfo.ts';
+import { normalizeModuleVisibility, resolveVisibleView, type View, type OptionalModule, type ModuleVisibility } from './modules.ts';
+export type { View } from './modules.ts';
 
 const DEFAULT_CHANNEL = (() => {
   const envChannel = (import.meta as any)?.env?.VITE_APP_CHANNEL;
@@ -22,7 +26,7 @@ function save(k: string, v: any) {
   } catch {}
 }
 
-export type View = 'overview' | 'cabinet' | 'servers' | 'ipdash' | 'porthub' | 'wol' | 'audit';
+const storedModuleVisibility = normalizeModuleVisibility(load<unknown>('ops-module-visibility', null));
 type IpDashViewMode = 'table' | 'grid';
 type ConnectionStatus = {
   text: string;
@@ -55,6 +59,13 @@ type EditingDevice = {
 
 type State = {
   view: View;
+  moduleVisibility: ModuleVisibility;
+  setModuleVisible: (module: OptionalModule, visible: boolean) => void;
+  resetModuleVisibility: () => void;
+  repoSlug: string;
+  releaseCheckStatus: 'idle' | 'checking' | 'success' | 'unavailable' | 'no-release' | 'development';
+  releaseCheckedAt: string | null;
+  metaStatus: 'loading' | 'ready' | 'unavailable';
   theme: 'light' | 'dark';
   sidebarCollapsed: boolean;
   pinSession: boolean;
@@ -102,7 +113,24 @@ type State = {
 };
 
 export const useAppStore = create<State>((set, get) => ({
-  view: storedView,
+  view: resolveVisibleView(storedView, storedModuleVisibility),
+  moduleVisibility: storedModuleVisibility,
+  repoSlug: (import.meta as any)?.env?.VITE_GITHUB_REPO || 'buzuser/rakit_dev',
+  releaseCheckStatus: 'idle',
+  releaseCheckedAt: null,
+  metaStatus: 'loading',
+  setModuleVisible: (module, visible) => {
+    const moduleVisibility = { ...get().moduleVisibility, [module]: visible };
+    const view = resolveVisibleView(get().view, moduleVisibility);
+    save('ops-module-visibility', moduleVisibility);
+    save('view', view);
+    set({ moduleVisibility, view });
+  },
+  resetModuleVisibility: () => {
+    const moduleVisibility = normalizeModuleVisibility(null);
+    save('ops-module-visibility', moduleVisibility);
+    set({ moduleVisibility });
+  },
   theme: load<'light' | 'dark'>('theme', 'dark'),
   sidebarCollapsed: load<boolean>('ops-sidebar-collapsed', false),
   pinSession: false,
@@ -128,8 +156,9 @@ export const useAppStore = create<State>((set, get) => ({
   editingCabinetId: null,
 
   setView: (view) => {
-    save('view', view);
-    set({ view });
+    const nextView = resolveVisibleView(view, get().moduleVisibility);
+    save('view', nextView);
+    set({ view: nextView });
   },
 
   setTheme: (theme) => {
@@ -218,38 +247,3 @@ export const useAppStore = create<State>((set, get) => ({
     }),
   setTimeZone: (timeZone) => set({ timeZone: timeZone || 'UTC' }),
 }));
-
-export function compareVersions(a?: string | null, b?: string | null) {
-  if (!a && !b) return 0;
-  if (!a) return -1;
-  if (!b) return 1;
-  const partsA = normalizeVersion(a);
-  const partsB = normalizeVersion(b);
-  const len = Math.max(partsA.length, partsB.length);
-  for (let i = 0; i < len; i += 1) {
-    const rawA = partsA[i] ?? '0';
-    const rawB = partsB[i] ?? '0';
-    const numA = Number(rawA);
-    const numB = Number(rawB);
-    const isNumA = Number.isFinite(numA);
-    const isNumB = Number.isFinite(numB);
-    if (isNumA && isNumB) {
-      if (numA > numB) return 1;
-      if (numA < numB) return -1;
-      continue;
-    }
-    if (isNumA && !isNumB) return 1;
-    if (!isNumA && isNumB) return -1;
-    const cmp = rawA.localeCompare(rawB, undefined, { sensitivity: 'base' });
-    if (cmp !== 0) return cmp > 0 ? 1 : -1;
-  }
-  return 0;
-}
-
-function normalizeVersion(value: string) {
-  return value
-    .trim()
-    .replace(/^v/i, '')
-    .split(/[^0-9A-Za-z]+/)
-    .filter(Boolean);
-}

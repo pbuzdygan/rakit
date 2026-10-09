@@ -19,6 +19,24 @@
 - ✅ Secured with encryption key
 
 ---
+## Settings
+
+Open **Settings** using the gear button at the bottom of the sidebar, including
+when the sidebar is collapsed. On mobile, open the navigation menu first.
+
+- **General**: change the theme or lock the current session.
+- **Modules**: show or hide Racks, Servers, IP Addressing, Port Map and Wake on LAN.
+  Choices apply to the sidebar and Overview and are saved automatically in this
+  browser. All modules are visible by default; **Restore defaults** shows them all.
+  Hiding the active module opens Overview. Module data, integrations and scheduled
+  tasks remain available in the backend.
+- **About**: see the current version, release channel, latest checked release and
+  update status, with links to GitHub. Release checks run in the background every
+  six hours after sign-in, even when Settings is closed.
+
+Overview, Audit Log and Settings are always available. Module preferences control
+navigation visibility; they are not access permissions or instance-wide settings.
+
 ## Demo / Screenshots
 
 ### Main UI
