@@ -162,6 +162,8 @@ After a correct PIN, Rakit creates a time-limited server session in an `HttpOnly
 
 ### Install Rakit as a PWA
 
+Use a current browser. The Tailwind CSS 4 frontend requires Safari 16.4+, Chrome 111+ or Firefox 128+.
+
 PWA installation and the service worker require a secure browser context. Publish Rakit through an HTTPS reverse proxy and open that HTTPS address on the target device. `http://localhost` and `http://127.0.0.1` are accepted for local development, but a plain LAN address such as `http://192.168.1.20:8011` is not installable as a PWA.
 
 For an HTTPS deployment, use settings such as:
