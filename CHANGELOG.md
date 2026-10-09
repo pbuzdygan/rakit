@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.2] - Unreleased
+
+### Bug fixes
+- Import completed manual Semaphore tasks from the four mapped templates, alongside scheduled tasks, without duplicating tasks launched by Rakit; refresh the open server inspector for external results.
+- Preserve newer package-check results when importing older package-update or reboot history.
+- Detect sudo-rs before privilege escalation and use executable `/usr/bin/sudo.ws` when available, retaining password-based sudo and explicit Ansible executable overrides for update checks, package updates and reboots.
+- Run the root privilege preflight before gathering facts so sudo failures occur at the explicit escalation check.
+
+### Improvements
+- Document sudo-rs prompt timeout diagnosis, password-based verification and the distinction between password authentication and sudo command permissions.
+
 ## [1.4.1] - 2026-09-21
 
 ### Bug fixes

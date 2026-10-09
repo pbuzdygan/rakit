@@ -1,4 +1,4 @@
-# Rakit 1.4.1 + Semaphore 2.19 — konfiguracja
+# Rakit 1.4.2 + Semaphore 2.19 — konfiguracja
 
 Ten katalog zawiera backup projektu Semaphore gotowy do użycia przez **Restore Project**:
 
@@ -24,10 +24,11 @@ services:
       - /srv/docker/semaphore/ansible:/opt/semaphore/ansible:ro
 ```
 
-Skopiuj zawartość katalogu `ansible/` z projektu Rakit do `/srv/docker/semaphore/ansible`. W kontenerze musi istnieć:
+Skopiuj całą zawartość katalogu `ansible/` z projektu Rakit do `/srv/docker/semaphore/ansible`, również podkatalog `playbooks/tasks/`. W kontenerze muszą istnieć:
 
 ```text
 /opt/semaphore/ansible/playbooks/check-updates.yml
+/opt/semaphore/ansible/playbooks/tasks/privilege-preflight.yml
 ```
 
 Wolumen może być tylko do odczytu. Rakit publikuje inventory przez REST API, a nie przez plik w tym katalogu.
@@ -87,10 +88,70 @@ sudo passwd ansible
 W Semaphore otwórz **Key Store**:
 
 1. edytuj `Rakit SSH`, ustaw login `ansible` i wklej cały prywatny klucz,
-2. edytuj `Rakit Sudo`, ustaw login `ansible` i podaj hasło utworzone wyżej.
+2. edytuj `Rakit Sudo` (typ **Login with password**), ustaw login `ansible` i podaj hasło utworzone wyżej.
 3. otwórz **Inventory → RAKIT Managed Servers → Edit** i upewnij się, że **Sudo Credentials / Become Key** wskazuje `Rakit Sudo`.
 
 Hasło służy tylko do eskalacji `become: true`; logowanie SSH nadal odbywa się kluczem.
+
+### Diagnostyka: timeout przy `sudo` z hasłem
+
+Jeżeli ręczne `sudo /usr/bin/id -u` zwraca `0`, ale Ansible zgłasza
+`Timeout (12s) waiting for privilege escalation prompt`, sprawdź implementację
+`sudo`. Prompt `[sudo: authenticate] Password:` wskazuje na `sudo-rs`.
+To mocna wskazówka problemu rozpoznawania promptu przez Ansible, a nie dowód
+błędnego hasła. Problem jest opisany w [zgłoszeniu Ansible #85837](https://github.com/ansible/ansible/issues/85837)
+i [dokumentacji Ubuntu](https://ubuntu.com/server/docs/reference/other-tools/sudo-rs/).
+Sukces na hostach z `NOPASSWD` nie weryfikuje przekazania hasła z Semaphore,
+ponieważ te hosty w ogóle go nie potrzebują.
+
+Na problematycznym serwerze, jako `ansible`, wykonaj:
+
+```bash
+sudo --version
+command -v sudo.ws
+```
+
+Jeżeli istnieje `/usr/bin/sudo.ws`, sprawdź klasyczne sudo z wymuszonym nowym
+uwierzytelnieniem i własnym promptem:
+
+```bash
+/usr/bin/sudo.ws -k -S -p 'RAKIT sudo password: ' /usr/bin/id -u
+```
+
+Wpisz hasło interaktywnie. Wynik musi być `0`; nie wpisuj hasła do polecenia,
+inventory, Extra Variables ani logów. `sudo.ws` jest nadal wspierane w Ubuntu
+25.10 i 26.04, zgodnie z [dokumentacją Ubuntu](https://ubuntu.com/server/docs/how-to/security/user-management/).
+
+Od 1.4.2 playbooki Check updates, Update packages i Reboot wykrywają `sudo-rs`
+bez eskalacji i wybierają `/usr/bin/sudo.ws`, jeśli jest dostępne i wykonywalne.
+Nie zmieniają systemowego `sudo`, reguł sudoers ani credentials w Semaphore.
+Jawne zmienne `ansible_become_exe` i `ansible_sudo_exe` wyłączają automatyczny
+wybór. Jeśli `sudo.ws` nie istnieje, playbook pozostawia domyślne `sudo` i
+wyświetla wskazówkę diagnostyczną. W takim przypadku sprawdź możliwość instalacji
+klasycznego pakietu `sudo` na hoście albo wersję Ansible z obsługą używanego
+`sudo-rs` w runnerze Semaphore; sam numer głównej wersji Ansible nie wystarcza.
+
+Po skopiowaniu całego zaktualizowanego katalogu `ansible/` uruchom w Semaphore
+**Check updates** z **Limit = buzpc00-dev**,
+z przypisanym **Sudo Credentials = Rakit Sudo** (lub własną nazwą tego wpisu).
+Log powinien pokazać wykrywanie sudo, wybór klasycznego sudo na hoście z `sudo-rs`,
+test UID `0`, a dopiero potem zbieranie faktów i kontrolę APT.
+Nie trzeba ponownie importować backupu projektu.
+
+Jeżeli timeout pozostaje, sprawdź wersję Ansible **w runnerze wykonującym zadanie**
+(`ansible-playbook --version`), oba jawne nadpisania executable oraz przypisanie
+Sudo Credentials do inventory używanego przez ten konkretny template.
+Możesz tymczasowo zwiększyć verbosity zadania do `-vvv`, żeby sprawdzić wywoływany
+program sudo i prompt; przed udostępnieniem logu usuń dane wrażliwe.
+Ostrzeżenie o odkrytym interpreterze Python oraz komunikaty o braku
+`requirements.yml` nie są przyczyną tego timeoutu.
+
+Hasło nie ogranicza listy dozwolonych poleceń: członkostwo w grupie `sudo`
+standardowo daje pełne uprawnienia root również w wariancie A. `NOPASSWD: ALL`
+usuwa dodatkowy wymóg uwierzytelnienia. Jeśli potrzebujesz rzeczywiście
+ograniczonego konta, wymaga to osobnego projektu uprawnień; prosta lista
+`apt-get` i `reboot` w sudoers nie pasuje do tych playbooków, ponieważ Ansible
+uruchamia moduły Python przez powłokę z uprawnieniami root.
 
 ### Wariant B — bezhasłowe `sudo` (wygodniejszy, szersze uprawnienie)
 
@@ -150,5 +211,14 @@ Dane pozostają w SQLite Rakita. Po późniejszym podłączeniu Semaphore genera
 4. Uruchom ręcznie `Check updates` z tym samym limitem.
 5. Dopiero po sukcesie wywołaj kontrolę z karty serwera w Rakit.
 6. `Update packages` i `Reboot server` przetestuj najpierw poza produkcją.
+
+Od 1.4.2 Rakit pobiera także wyniki zadań uruchomionych ręcznie w Semaphore,
+jeśli ich template jest jednym z czterech przypisanych w profilu Rakit.
+Backend sprawdza ostatnie 200 zadań co 10 sekund; lista Servers i otwarty panel
+serwera odświeżają się co 30 sekund. `Check updates` aktualizuje Updates,
+Security i Reboot. `Server health` aktualizuje Health i Last health.
+`Last update` dotyczy instalacji pakietów przez Update packages.
+Ta zmiana wymaga wdrożenia nowej wersji aplikacji Rakit; sama podmiana
+playbooków w Semaphore nie zmienia sposobu importu wyników.
 
 Jeśli APT zgłasza brak dostępu do `/var/lib/dpkg/lock-frontend`, zadanie nie otrzymało uprawnień root. Dla wariantu A sprawdź sekret `Rakit Sudo` i przypisanie `Become Key = Rakit Sudo` do inventory. Dla wariantu B sprawdź regułę przez `sudo visudo -cf /etc/sudoers.d/90-ansible` i ustaw `Become Key = None`. Sam działający `Check updates` nie potwierdza poprawnego sudo, jeżeli cache APT był jeszcze aktualny; dołączone playbooki wykonują teraz osobny test efektywnego UID.
