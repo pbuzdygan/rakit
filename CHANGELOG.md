@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.4.2]
+## [1.4.2] - Unreleased
 
 ### New features
 - Add persistent browser preferences for showing or hiding Racks, Servers, IP Addressing, Port Map and Wake on LAN, with matching Overview shortcuts and safe navigation to Overview when hiding the active module.
